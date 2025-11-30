@@ -1,17 +1,15 @@
 import { v2 as cloudinary } from "cloudinary";
-import fs from "fs";
 
-export async function uploadToCloudinary(localPath: string) {
-  try {
-    const result = await cloudinary.uploader.upload(localPath, {
-      folder: "salontraining",
-    });
+export async function uploadToCloudinary(buffer: Buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "salontraining" },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result?.secure_url);
+      }
+    );
 
-    fs.unlinkSync(localPath); // delete local temp file
-
-    return result.secure_url;
-  } catch (err) {
-    console.error("Cloudinary upload error:", err);
-    throw err;
-  }
+    stream.end(buffer);
+  });
 }

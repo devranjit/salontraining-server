@@ -1,14 +1,14 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
 import { protect } from "../middleware/auth";
 import uploadTemp from "../middleware/uploadTemp"; 
-import { uploadToCloudinary } from "../utils/uploadToCloudinary"; // NEW
+import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 import { v2 as cloudinary } from "cloudinary";
-
 
 const router = Router();
 
+
 /**
- * SINGLE UPLOAD
+ * SINGLE UPLOAD – VERCEL SAFE
  * POST /api/upload
  */
 router.post("/", uploadTemp.single("file"), async (req, res) => {
@@ -20,22 +20,19 @@ router.post("/", uploadTemp.single("file"), async (req, res) => {
       });
     }
 
-    const url = await uploadToCloudinary(req.file.path);
+    // Buffer-based upload
+    const url = await uploadToCloudinary(req.file.buffer);
 
-    return res.json({
-      success: true,
-      url,
-    });
+    return res.json({ success: true, url });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
+
 /**
- * MULTIPLE UPLOADS
+ * MULTIPLE UPLOADS – VERCEL SAFE
+ * POST /api/upload/multiple
  */
 router.post("/multiple", uploadTemp.array("files", 10), async (req, res) => {
   try {
@@ -51,7 +48,7 @@ router.post("/multiple", uploadTemp.array("files", 10), async (req, res) => {
     const results = [];
 
     for (let file of files) {
-      const url = await uploadToCloudinary(file.path);
+      const url = await uploadToCloudinary(file.buffer);
       results.push({ url });
     }
 
@@ -61,12 +58,10 @@ router.post("/multiple", uploadTemp.array("files", 10), async (req, res) => {
       files: results,
     });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 
 /**
  * DELETE IMAGE
@@ -82,7 +77,7 @@ router.post("/delete", protect, async (req, res) => {
   }
 
   try {
-    const result = await cloudinary.uploader.destroy(public_id);
+    await cloudinary.uploader.destroy(public_id);
 
     return res.json({
       success: true,
@@ -95,5 +90,6 @@ router.post("/delete", protect, async (req, res) => {
     });
   }
 });
+
 
 export default router;
