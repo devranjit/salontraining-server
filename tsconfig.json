@@ -5,8 +5,17 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": "./",
+    "paths": {
+      "*": ["src/*"]
+    },
+    "typeRoots": [
+      "./src/types",
+      "./node_modules/@types"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src/**/*"
+  ]
 }

@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import Product from "../models/Product";
-import Category from "../models/Category.js";
+import Category from "../models/Category";
 
 // -----------------------------------------------------
 // ADMIN — CREATE PRODUCT

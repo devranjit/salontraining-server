@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import User from "../models/User";
 import { Request, Response } from "express";
 import nodemailer from "nodemailer";
 

@@ -24,7 +24,7 @@ export const createTrainer = async (req: any, res: Response) => {
 // ===============================
 export async function getMyTrainers(req: Request, res: Response) {
   try {
-    const userId = req.user.id || req.user._id;
+const userId = req.user?._id || req.user?.id;
 
     const listings = await TrainerListing.find({ owner: userId })
       .sort({ createdAt: -1 });
