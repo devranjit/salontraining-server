@@ -1,17 +1,21 @@
 import { v2 as cloudinary } from "cloudinary";
-import { Request } from "express";
-import fs from "fs";
 
-export async function uploadToCloudinary(filePath: string) {
-  try {
-    const result = await cloudinary.uploader.upload(filePath, {
-      folder: "salontraining",
-    });
+export function uploadToCloudinary(file: Express.Multer.File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "salontraining",
+      },
+      (err, result) => {
+        if (err || !result) {
+          console.error("Cloudinary upload error:", err);
+          return reject(err);
+        }
+        resolve(result.secure_url);
+      }
+    );
 
-    fs.unlinkSync(filePath); // delete local temp file
-    return result.secure_url;
-  } catch (err) {
-    console.error("Cloudinary upload error:", err);
-    throw err;
-  }
+    // Write file buffer to cloudinary
+    stream.end(file.buffer);
+  });
 }
