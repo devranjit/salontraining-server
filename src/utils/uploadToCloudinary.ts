@@ -1,8 +1,9 @@
 import { v2 as cloudinary } from "cloudinary";
 
+export async function uploadToCloudinary(buffer: Buffer): Promise<any> {
+  console.log("🔥 Cloudinary Upload Called...");
+  console.log("🔥 Buffer Size:", buffer?.length);
 
-
-export async function uploadToCloudinary(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -10,16 +11,15 @@ export async function uploadToCloudinary(buffer: Buffer): Promise<string> {
         resource_type: "auto",
       },
       (error, result) => {
-        if (error) {
-          console.error("Cloudinary Error:", error);
-          return reject(error);
-        }
+        console.log("🔥 Cloudinary Response:", { error, result });
 
-        if (!result || !result.secure_url) {
-          return reject(new Error("No Cloudinary URL returned"));
-        }
+        if (error) return reject(error);
+        if (!result) return reject("No result from Cloudinary");
 
-        resolve(result.secure_url);
+        resolve({
+          url: result.secure_url,
+          public_id: result.public_id,
+        });
       }
     );
 

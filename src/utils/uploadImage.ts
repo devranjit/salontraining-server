@@ -1,4 +1,4 @@
-import { v2 as cloudinary } from "cloudinary";
+import cloudinary from "../lib/cloudinary";
 
 export function uploadToCloudinary(file: Express.Multer.File): Promise<string> {
   return new Promise((resolve, reject) => {

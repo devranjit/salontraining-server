@@ -39,12 +39,11 @@ router.post("/upload", protect, upload.single("file"), async (req, res) => {
       });
     }
 
-    // MUST USE BUFFER
-    const url = await uploadToCloudinary(req.file.buffer);
+    const uploaded = await uploadToCloudinary(req.file.buffer);
 
     return res.json({
       success: true,
-      url,
+      file: uploaded,   // contains url + public_id
     });
   } catch (err: any) {
     return res.status(500).json({
@@ -53,6 +52,7 @@ router.post("/upload", protect, upload.single("file"), async (req, res) => {
     });
   }
 });
+
 
 
 

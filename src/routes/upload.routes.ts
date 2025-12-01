@@ -20,9 +20,12 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     // FIX HERE
-    const url = await uploadToCloudinary(req.file.buffer);
+const { url, public_id } = await uploadToCloudinary(req.file.buffer);
 
-    return res.json({ success: true, url });
+return res.json({
+  success: true,
+  file: { url, public_id }
+});
   } catch (err: any) {
     return res.status(500).json({
       success: false,
@@ -42,9 +45,8 @@ router.post("/multiple", upload.array("files", 10), async (req, res) => {
     const results = [];
 
     for (const file of files) {
-      // FIX HERE
-      const url = await uploadToCloudinary(file.buffer);
-      results.push({ url });
+      const { url, public_id } = await uploadToCloudinary(file.buffer);
+      results.push({ url, public_id });
     }
 
     return res.json({

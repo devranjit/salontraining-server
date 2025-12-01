@@ -11,6 +11,8 @@ import adminRoutes from "./routes/adminRoutes";
 import trainerRoutes from "./routes/trainer.routes";
 import categoryRoutes from "./routes/category.routes";
 import uploadRoutes from "./routes/upload.routes";
+import "./lib/cloudinary";
+
 
 // -----------------------------------------
 // LAZY DB CONNECT (REQUIRED FOR VERCEL)
