@@ -1,10 +1,18 @@
 import mongoose from "mongoose";
 
-const trainerListingSchema = new mongoose.Schema(
+const eventSchema = new mongoose.Schema(
   {
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+      required: true,
+    },
+
+    // Type: Show or Event (combined)
+    eventType: {
+      type: String,
+      enum: ["show", "event"],
+      default: "event",
       required: true,
     },
 
@@ -20,10 +28,19 @@ const trainerListingSchema = new mongoose.Schema(
     // Social Links
     facebook: String,
     instagram: String,
+    twitter: String,
     tiktok: String,
     youtube: String,
+    videoUrl: String,
 
-    // Address / Map
+    // Event Date & Time
+    startDate: { type: Date, required: true },
+    endDate: { type: Date },
+    allDay: { type: Boolean, default: false },
+    startTime: { type: String }, // e.g., "10:00 AM"
+    endTime: { type: String },   // e.g., "6:00 PM"
+
+    // Location
     address: String,
     city: String,
     state: String,
@@ -33,12 +50,14 @@ const trainerListingSchema = new mongoose.Schema(
       lat: Number,
       lng: Number,
     },
+    venue: String, // Venue name
 
-    // Categories
+    // Categories & Tags
     category: {
       type: String,
-      enum: ["hair", "makeup", "barber", "nails", "skin", "educator", "other"],
+      enum: ["hair_show", "beauty_expo", "trade_show", "workshop", "seminar", "competition", "networking", "other"],
     },
+    tags: [String],
 
     // Media
     gallery: [
@@ -52,6 +71,12 @@ const trainerListingSchema = new mongoose.Schema(
       public_id: { type: String }
     },
 
+    // Additional Info
+    specialOffers: { type: String },
+    ticketUrl: { type: String },
+    ticketPrice: { type: String },
+    capacity: { type: Number },
+
     // System Fields
     status: {
       type: String,
@@ -64,12 +89,8 @@ const trainerListingSchema = new mongoose.Schema(
       default: false,
     },
 
-    // Admin feedback when requesting changes
+    // Admin feedback
     adminNotes: { type: String },
-
-    // Date management
-    publishDate: { type: Date },
-    expiryDate: { type: Date },
 
     // View tracking
     views: { type: Number, default: 0 },
@@ -77,9 +98,11 @@ const trainerListingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Index for efficient queries
-trainerListingSchema.index({ status: 1, featured: 1 });
-trainerListingSchema.index({ category: 1 });
-trainerListingSchema.index({ "coords.lat": 1, "coords.lng": 1 });
+// Indexes for efficient queries
+eventSchema.index({ eventType: 1, status: 1, featured: 1 });
+eventSchema.index({ startDate: 1 });
+eventSchema.index({ category: 1 });
+eventSchema.index({ "coords.lat": 1, "coords.lng": 1 });
+eventSchema.index({ city: 1, state: 1 });
 
-export const TrainerListing = mongoose.model("TrainerListing", trainerListingSchema);
+export const Event = mongoose.model("Event", eventSchema);

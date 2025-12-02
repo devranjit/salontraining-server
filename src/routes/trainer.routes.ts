@@ -9,9 +9,15 @@ import {
   adminGetAllTrainers,
   approveTrainer,
   rejectTrainer,
+  setPendingTrainer,
+  requestChanges,
+  publishTrainer,
   updateTrainerAdmin,
   toggleFeatured,
   adminGetTrainerById,
+  getPendingCounts,
+  getAllTrainers,
+  getFeaturedTrainers,
 } from "../controllers/trainer.controller";
 
 import { TrainerListing } from "../models/TrainerListing";
@@ -83,24 +89,18 @@ export async function updateTrainerUser(req: Request, res: Response) {
 
 
 /* ---------------------- PUBLIC ROUTES ---------------------- */
-router.get("/featured", async (req, res) => {
-  try {
-    const featured = await TrainerListing.find({
-      featured: true,
-      status: "approved",
-    }).sort({ createdAt: -1 });
-
-    return res.json({ success: true, trainers: featured });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+router.get("/all", getAllTrainers);              // GET /api/trainers/all?search=&category=&city=&sort=
+router.get("/featured", getFeaturedTrainers);    // GET /api/trainers/featured?limit=4
 
 
 /* ---------------------- ADMIN ROUTES ---------------------- */
+router.get("/admin/pending-counts", protect, adminOnly, getPendingCounts);
 router.get("/admin/all", protect, adminOnly, adminGetAllTrainers);
 router.patch("/admin/:id/approve", protect, adminOnly, approveTrainer);
 router.patch("/admin/:id/reject", protect, adminOnly, rejectTrainer);
+router.patch("/admin/:id/set-pending", protect, adminOnly, setPendingTrainer);
+router.patch("/admin/:id/request-changes", protect, adminOnly, requestChanges);
+router.patch("/admin/:id/publish", protect, adminOnly, publishTrainer);
 router.patch("/admin/:id/update", protect, adminOnly, updateTrainerAdmin);
 router.patch("/admin/:id/feature", protect, adminOnly, toggleFeatured);
 router.get("/admin/:id", protect, adminOnly, adminGetTrainerById);

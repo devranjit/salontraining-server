@@ -8,7 +8,7 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 /**
- * SINGLE UPLOAD
+ * SINGLE UPLOAD (field name: "file")
  */
 router.post("/", upload.single("file"), async (req, res) => {
   try {
@@ -19,14 +19,46 @@ router.post("/", upload.single("file"), async (req, res) => {
       });
     }
 
-    // FIX HERE
-const { url, public_id } = await uploadToCloudinary(req.file.buffer);
+    const { url, public_id } = await uploadToCloudinary(req.file.buffer);
 
-return res.json({
-  success: true,
-  file: { url, public_id }
-});
+    return res.json({
+      success: true,
+      file: { url, public_id }
+    });
   } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+/**
+ * IMAGE UPLOAD (field name: "image") - Used by product forms
+ */
+router.post("/image", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image uploaded",
+      });
+    }
+
+    console.log("🔥 Image Upload Called...");
+    console.log("🔥 Buffer Size:", req.file.buffer.length);
+
+    const { url, public_id } = await uploadToCloudinary(req.file.buffer);
+
+    console.log("🔥 Cloudinary Response:", { url, public_id });
+
+    return res.json({
+      success: true,
+      url: url,
+      publicId: public_id,
+    });
+  } catch (err: any) {
+    console.error("🔥 Upload Error:", err.message);
     return res.status(500).json({
       success: false,
       message: err.message,

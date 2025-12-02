@@ -11,6 +11,8 @@ import adminRoutes from "./routes/adminRoutes";
 import trainerRoutes from "./routes/trainer.routes";
 import categoryRoutes from "./routes/category.routes";
 import uploadRoutes from "./routes/upload.routes";
+import productRoutes from "./routes/product.routes";
+import eventRoutes from "./routes/event.routes";
 import "./lib/cloudinary";
 
 
@@ -36,14 +38,39 @@ app.use(express.urlencoded({ extended: true }));
 // -----------------------------------------
 // CORS CONFIG
 // -----------------------------------------
+// Allowed origins list
+const allowedOrigins = [
+  // Local Development
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://salontraining.local:5173",
+  
+  // Production Domains
+  "https://placefindy.com",
+  "https://www.placefindy.com",
+  "https://salontraining.com",
+  "https://www.salontraining.com",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://salontraining.local:5173",
-      "https://placefindy.com",
-      "https://salontraining.com",
-    ],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Allow Vercel preview deployments (*.vercel.app)
+      if (origin.endsWith(".vercel.app")) {
+        return callback(null, true);
+      }
+      
+      // Block other origins
+      return callback(new Error("Not allowed by CORS"), false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -65,6 +92,8 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/trainers", trainerRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/events", eventRoutes);
 app.use("/api/auth", authRoutes);
 
 // -----------------------------------------
