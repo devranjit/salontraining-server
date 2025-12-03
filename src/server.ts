@@ -13,6 +13,10 @@ import categoryRoutes from "./routes/category.routes";
 import uploadRoutes from "./routes/upload.routes";
 import productRoutes from "./routes/product.routes";
 import eventRoutes from "./routes/event.routes";
+import blogRoutes from "./routes/blog.routes";
+import jobRoutes from "./routes/job.routes";
+import educationRoutes from "./routes/education.routes";
+import memberVideoRoutes from "./routes/memberVideo.routes";
 import "./lib/cloudinary";
 
 
@@ -94,6 +98,10 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/trainers", trainerRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/blogs", blogRoutes);
+app.use("/api/jobs", jobRoutes);
+app.use("/api/education", educationRoutes);
+app.use("/api/member-videos", memberVideoRoutes);
 app.use("/api/auth", authRoutes);
 
 // -----------------------------------------

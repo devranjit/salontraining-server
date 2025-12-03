@@ -36,3 +36,22 @@ export const adminOnly = (req: any, res: Response, next: NextFunction) => {
   }
   next();
 };
+
+export const memberOrAdmin = (req: any, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+  }
+
+  // Allow if user is admin or has member role
+  if (req.user.role === "admin" || req.user.role === "member") {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: "Member access only. Please upgrade to access this content.",
+  });
+};

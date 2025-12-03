@@ -1,5 +1,14 @@
 import express from "express";
-import { registerUser, loginUser, getMe, sendOtp, verifyOtp } from "../controllers/auth.controller";
+import { 
+  registerUser, 
+  loginUser, 
+  getMe, 
+  sendOtp, 
+  verifyOtp,
+  forgotPassword,
+  resetPassword,
+  resetPasswordWithOtp
+} from "../controllers/auth.controller";
 import { protect, adminOnly } from "../middleware/auth";
 import { updateProfile } from "../controllers/profile.controller";
 import { 
@@ -20,6 +29,11 @@ router.post("/login", loginUser);
 // OTP routes
 router.post("/send-otp", sendOtp);
 router.post("/verify-otp", verifyOtp);
+
+// Password reset routes
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+router.post("/reset-password-otp", resetPasswordWithOtp);
 
 // Protected routes
 router.get("/me", protect, getMe);
