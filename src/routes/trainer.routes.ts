@@ -1,11 +1,14 @@
 import { Router } from "express";
-import { Request, Response } from "express";
 import { protect, adminOnly } from "../middleware/auth";
 import multer from "multer";
+import { TrainerListing } from "../models/TrainerListing";
 
 import {
   createTrainer,
   getMyTrainers,
+  getMyTrainerDetail,
+  requestTrainerUpdate,
+  requestTrainerDelete,
   adminGetAllTrainers,
   approveTrainer,
   rejectTrainer,
@@ -20,13 +23,15 @@ import {
   getFeaturedTrainers,
 } from "../controllers/trainer.controller";
 
-import { TrainerListing } from "../models/TrainerListing";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 
 const router = Router();
 
 /* ---------------------- USER ROUTES ---------------------- */
 router.get("/my", protect, getMyTrainers);
+router.get("/my/:id", protect, getMyTrainerDetail);
+router.patch("/my/:id", protect, requestTrainerUpdate);
+router.post("/my/:id/delete-request", protect, requestTrainerDelete);
 router.post("/", protect, createTrainer);
 
 
@@ -60,32 +65,6 @@ router.post("/upload", protect, upload.single("file"), async (req, res) => {
 });
 
 
-
-
-/* ---------------------- USER UPDATE ROUTE ---------------------- */
-export async function updateTrainerUser(req: Request, res: Response) {
-  try {
-    const listing = await TrainerListing.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user?.id },
-      req.body,
-      { new: true }
-    );
-
-    if (!listing) {
-      return res.status(404).json({
-        success: false,
-        message: "Unauthorized or listing not found",
-      });
-    }
-
-    return res.json({ success: true, listing });
-  } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Server error",
-    });
-  }
-}
 
 
 /* ---------------------- PUBLIC ROUTES ---------------------- */

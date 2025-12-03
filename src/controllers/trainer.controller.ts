@@ -2,6 +2,47 @@ import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
 import mongoose from "mongoose";
 
+const DISALLOWED_UPDATE_FIELDS = [
+  "_id",
+  "owner",
+  "status",
+  "pendingAction",
+  "pendingChanges",
+  "pendingReason",
+  "pendingRequestedAt",
+  "statusBeforePending",
+  "featured",
+  "views",
+  "createdAt",
+  "updatedAt",
+];
+
+function sanitizePendingPayload(payload: any) {
+  const safe: any = {};
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (!DISALLOWED_UPDATE_FIELDS.includes(key)) {
+      safe[key] = value;
+    }
+  });
+  return safe;
+}
+
+function clearPendingMeta(listing: any) {
+  listing.pendingAction = undefined;
+  listing.pendingChanges = undefined;
+  listing.pendingReason = undefined;
+  listing.pendingRequestedAt = undefined;
+  listing.statusBeforePending = undefined;
+}
+
+function applyPendingUpdate(listing: any) {
+  if (listing.pendingAction === "update" && listing.pendingChanges) {
+    const sanitized = sanitizePendingPayload(listing.pendingChanges);
+    Object.assign(listing, sanitized);
+  }
+  clearPendingMeta(listing);
+}
+
 // ===============================
 // USER — Create Trainer Listing
 // ===============================
@@ -43,6 +84,104 @@ const userId = req.user?._id || req.user?.id;
   }
 } // ← FIXED MISSING BRACE HERE!!!
 
+export const getMyTrainerDetail = async (req: any, res: Response) => {
+  try {
+    const listing = await TrainerListing.findOne({
+      _id: req.params.id,
+      owner: req.user?.id || req.user?._id,
+    });
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Listing not found" });
+    }
+
+    return res.json({ success: true, listing });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Server error",
+    });
+  }
+};
+
+export const requestTrainerUpdate = async (req: any, res: Response) => {
+  try {
+    const listing = await TrainerListing.findOne({
+      _id: req.params.id,
+      owner: req.user?.id || req.user?._id,
+    });
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Listing not found" });
+    }
+
+    const pendingChanges = sanitizePendingPayload(req.body);
+
+    listing.pendingAction = "update";
+    listing.pendingChanges = pendingChanges;
+    listing.pendingReason = req.body?.requestNote || "";
+    listing.pendingRequestedAt = new Date();
+    listing.statusBeforePending = listing.status;
+    listing.status = "pending";
+    listing.adminNotes =
+      "User submitted updates for review. Please verify the pending changes.";
+
+    await listing.save();
+
+    return res.json({
+      success: true,
+      message: "Update submitted for admin review",
+      listing,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Server error",
+    });
+  }
+};
+
+export const requestTrainerDelete = async (req: any, res: Response) => {
+  try {
+    const listing = await TrainerListing.findOne({
+      _id: req.params.id,
+      owner: req.user?.id || req.user?._id,
+    });
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Listing not found" });
+    }
+
+    listing.pendingAction = "delete";
+    listing.pendingChanges = null;
+    listing.pendingReason = req.body?.reason || "";
+    listing.pendingRequestedAt = new Date();
+    listing.statusBeforePending = listing.status;
+    listing.status = "pending";
+    listing.adminNotes =
+      "User requested this listing to be deleted. Approve to remove.";
+
+    await listing.save();
+
+    return res.json({
+      success: true,
+      message: "Delete request submitted for admin approval",
+      listing,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Server error",
+    });
+  }
+};
+
 
 // ===============================
 // ADMIN — All Trainers
@@ -70,11 +209,34 @@ export async function adminGetAllTrainers(req: Request, res: Response) {
 // ===============================
 export const approveTrainer = async (req: Request, res: Response) => {
   try {
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { status: "approved" },
-      { new: true }
-    );
+    const listing = await TrainerListing.findById(req.params.id);
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Trainer not found" });
+    }
+
+    if (listing.pendingAction === "delete") {
+      await listing.deleteOne();
+      return res.json({
+        success: true,
+        deleted: true,
+        message: "Delete request approved",
+      });
+    }
+
+    const previousStatus = listing.statusBeforePending;
+
+    if (listing.pendingAction === "update") {
+      applyPendingUpdate(listing);
+    } else {
+      clearPendingMeta(listing);
+    }
+
+    listing.status = (previousStatus || "approved") as "pending" | "approved" | "rejected" | "changes_requested" | "published";
+
+    await listing.save();
 
     res.json({ success: true, listing });
   } catch (err: any) {
@@ -87,11 +249,28 @@ export const approveTrainer = async (req: Request, res: Response) => {
 // ===============================
 export const rejectTrainer = async (req: Request, res: Response) => {
   try {
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { status: "rejected" },
-      { new: true }
-    );
+    const listing = await TrainerListing.findById(req.params.id);
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Trainer not found" });
+    }
+
+    if (listing.pendingAction) {
+      const previousStatus = listing.statusBeforePending || listing.status || "approved";
+      clearPendingMeta(listing);
+      listing.status = previousStatus as "pending" | "approved" | "rejected" | "changes_requested" | "published";
+      await listing.save();
+      return res.json({
+        success: true,
+        listing,
+        message: "Pending request rejected",
+      });
+    }
+
+    listing.status = "rejected";
+    await listing.save();
 
     res.json({ success: true, listing });
   } catch (err: any) {
@@ -152,25 +331,35 @@ export const requestChanges = async (req: Request, res: Response) => {
 export const publishTrainer = async (req: Request, res: Response) => {
   try {
     const { publishDate, expiryDate } = req.body;
-    
-    const updateData: any = { 
-      status: "published",
-      publishDate: publishDate || new Date(),
-    };
-    
-    if (expiryDate) {
-      updateData.expiryDate = expiryDate;
-    }
 
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
+    const listing = await TrainerListing.findById(req.params.id);
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Trainer not found" });
     }
+
+    if (listing.pendingAction === "delete") {
+      await listing.deleteOne();
+      return res.json({
+        success: true,
+        deleted: true,
+        message: "Delete request approved",
+      });
+    }
+
+    if (listing.pendingAction === "update") {
+      applyPendingUpdate(listing);
+    } else {
+      clearPendingMeta(listing);
+    }
+
+    listing.status = "published";
+    listing.publishDate = publishDate || new Date();
+    listing.expiryDate = expiryDate || listing.expiryDate;
+
+    await listing.save();
 
     res.json({ success: true, listing });
   } catch (err: any) {

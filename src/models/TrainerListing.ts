@@ -67,6 +67,19 @@ const trainerListingSchema = new mongoose.Schema(
     // Admin feedback when requesting changes
     adminNotes: { type: String },
 
+    // User initiated maintenance
+    pendingAction: {
+      type: String,
+      enum: ["update", "delete"],
+    },
+    pendingChanges: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    pendingReason: { type: String },
+    pendingRequestedAt: { type: Date },
+    statusBeforePending: { type: String },
+
     // Date management
     publishDate: { type: Date },
     expiryDate: { type: Date },
