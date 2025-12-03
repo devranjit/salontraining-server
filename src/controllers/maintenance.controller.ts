@@ -27,19 +27,10 @@ async function getRequestUser(req: Request) {
   }
 }
 
-function getClientIP(req: Request) {
-  const forwarded = (req.headers["x-forwarded-for"] as string) || "";
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-  return (req.socket && req.socket.remoteAddress) || req.ip || "";
-}
-
 export const getMaintenanceStatus = async (req: Request, res: Response) => {
   try {
     const setting = await getOrCreateSetting();
     const user = await getRequestUser(req);
-    const clientIP = getClientIP(req);
 
     let bypass = false;
 
@@ -52,11 +43,13 @@ export const getMaintenanceStatus = async (req: Request, res: Response) => {
       });
     }
 
+    // Admins always bypass
     if (user && user.role === "admin") {
       bypass = true;
     }
 
-    if (setting.allowedIPs.includes(clientIP)) {
+    // Check if user's email is in the allowed list
+    if (user && user.email && setting.allowedEmails.includes(user.email.toLowerCase())) {
       bypass = true;
     }
 
@@ -101,7 +94,7 @@ export const updateMaintenance = async (req: any, res: Response) => {
   try {
     const {
       isEnabled,
-      allowedIPs,
+      allowedEmails,
       resumeAt,
       showCountdown,
       title,
@@ -115,7 +108,10 @@ export const updateMaintenance = async (req: any, res: Response) => {
     const setting = await getOrCreateSetting();
 
     if (typeof isEnabled === "boolean") setting.isEnabled = isEnabled;
-    if (Array.isArray(allowedIPs)) setting.allowedIPs = allowedIPs;
+    if (Array.isArray(allowedEmails)) {
+      // Normalize emails to lowercase
+      setting.allowedEmails = allowedEmails.map((e: string) => e.toLowerCase().trim()).filter(Boolean);
+    }
     setting.resumeAt = resumeAt ? new Date(resumeAt) : undefined;
     if (typeof showCountdown === "boolean") setting.showCountdown = showCountdown;
     if (typeof title === "string") setting.title = title;

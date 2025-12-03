@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IMaintenanceSetting extends Document {
   isEnabled: boolean;
-  allowedIPs: string[];
+  allowedEmails: string[];
   resumeAt?: Date;
   showCountdown: boolean;
   title: string;
@@ -22,7 +22,7 @@ const MaintenanceSettingSchema = new Schema<IMaintenanceSetting>(
       type: Boolean,
       default: false,
     },
-    allowedIPs: {
+    allowedEmails: {
       type: [String],
       default: [],
     },
