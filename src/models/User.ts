@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-    enum: ["user", "member", "st-member", "admin"],
+      enum: ["user", "member", "st-member", "admin"],
       default: "user",
     },
 
@@ -19,22 +19,22 @@ const userSchema = new mongoose.Schema(
     instagram: String,
     facebook: String,
 
-    // NEW FIELDS
+    // Profile fields
     category: { type: String, default: "" },
     portfolio: { type: String, default: "" },
     country: { type: String, default: "" },
     state: { type: String, default: "" },
     city: { type: String, default: "" },
 
-    // 🔥 OTP LOGIN FIELDS
+    // OTP login fields
     otp: { type: String, default: null },
     otpExpires: { type: Date, default: null },
 
-    // 🔐 PASSWORD RESET FIELDS
+    // Password reset fields
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
 
-    // 🛡️ SECURITY FIELDS
+    // Security fields
     loginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
     lastLogin: { type: Date, default: null },
@@ -42,5 +42,6 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("User", userSchema);
+// Single model export - use named export for consistency
 export const User = mongoose.model("User", userSchema);
+export default User;

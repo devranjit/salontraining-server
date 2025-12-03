@@ -38,6 +38,7 @@ router.post("/reset-password-otp", resetPasswordWithOtp);
 // Protected routes
 router.get("/me", protect, getMe);
 router.put("/update-profile", protect, updateProfile);
+router.post("/update-profile", protect, updateProfile); // Also accept POST
 
 // Admin user management routes
 router.get("/users", protect, adminOnly, getAllUsers);
