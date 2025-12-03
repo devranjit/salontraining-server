@@ -11,17 +11,63 @@ const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
 
-// Email transporter (uses env variables)
-const getTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: process.env.SMTP_SECURE === "true",
+const REQUIRED_SMTP_VARS = [
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "SMTP_FROM",
+] as const;
+
+const parseBoolean = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+};
+
+type MailClient = {
+  transporter: nodemailer.Transporter;
+  from: string;
+};
+
+const resolveSmtpConfig = () => {
+  const missingVars = REQUIRED_SMTP_VARS.filter((key) => !process.env[key]);
+
+  if (missingVars.length) {
+    throw new Error(
+      `Missing SMTP environment variables: ${missingVars.join(", ")}`
+    );
+  }
+
+  const port = Number(process.env.SMTP_PORT);
+  if (Number.isNaN(port)) {
+    throw new Error("SMTP_PORT must be a valid number");
+  }
+
+  return {
+    host: process.env.SMTP_HOST as string,
+    port,
+    secure: parseBoolean(process.env.SMTP_SECURE as string),
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user: process.env.SMTP_USER as string,
+      pass: process.env.SMTP_PASS as string,
     },
-  });
+    from: process.env.SMTP_FROM as string,
+  };
+};
+
+const getTransporter = (): MailClient => {
+  const smtpConfig = resolveSmtpConfig();
+
+  return {
+    transporter: nodemailer.createTransport({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      auth: smtpConfig.auth,
+    }),
+    from: smtpConfig.from,
+  };
 };
 
 // Generate secure random token
@@ -112,6 +158,20 @@ export const loginUser = async (req: Request, res: Response) => {
     const user: any = await User.findOne({ email: email.toLowerCase() });
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if (user.status === "blocked") {
+      return res.status(423).json({
+        message: "This account has been blocked. Please contact support.",
+        blocked: true,
+      });
+    }
+
+    if (user.status === "blocked") {
+      return res.status(423).json({
+        message: "This account has been blocked. Please contact support.",
+        blocked: true,
+      });
+    }
+
     // Check if account is locked
     if (isLocked(user)) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 60000);
@@ -175,7 +235,7 @@ export const loginUser = async (req: Request, res: Response) => {
 export const getMe = async (req: any, res: any) => {
   try {
     const user = await User.findById(req.user.id).select(
-      "name email role first_name last_name phone business instagram facebook category portfolio country state city lastLogin"
+      "name email role status first_name last_name phone business instagram facebook category portfolio country state city lastLogin"
     );
 
     if (!user) {
@@ -207,6 +267,13 @@ export const sendOtp = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "No account found with this email" });
     }
 
+    if (user.status === "blocked") {
+      return res.status(423).json({
+        message: "This account has been blocked. Please contact support.",
+        blocked: true,
+      });
+    }
+
     // Check if account is locked
     if (isLocked(user)) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 60000);
@@ -225,7 +292,17 @@ export const sendOtp = async (req: Request, res: Response) => {
     await user.save();
 
     // Send email
-    const transporter = getTransporter();
+    let mailClient: MailClient;
+    try {
+      mailClient = getTransporter();
+    } catch (configError) {
+      console.error("SMTP configuration error (sendOtp):", configError);
+      return res.status(500).json({
+        message: "Email service misconfigured. Unable to send verification code.",
+        debug:
+          configError instanceof Error ? configError.message : configError,
+      });
+    }
     
     const subject = purpose === "reset" 
       ? "Reset Your Password - SalonTraining" 
@@ -256,8 +333,8 @@ export const sendOtp = async (req: Request, res: Response) => {
       </div>
     `;
 
-    await transporter.sendMail({
-      from: `"SalonTraining" <${process.env.SMTP_USER}>`,
+    await mailClient.transporter.sendMail({
+      from: mailClient.from,
       to: email,
       subject,
       html: htmlContent,
@@ -363,7 +440,17 @@ export const forgotPassword = async (req: Request, res: Response) => {
     const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
     // Send email
-    const transporter = getTransporter();
+    let mailClient: MailClient;
+    try {
+      mailClient = getTransporter();
+    } catch (configError) {
+      console.error("SMTP configuration error (forgotPassword):", configError);
+      return res.status(500).json({
+        message: "Email service misconfigured. Unable to send reset link.",
+        debug:
+          configError instanceof Error ? configError.message : configError,
+      });
+    }
     
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -391,8 +478,8 @@ export const forgotPassword = async (req: Request, res: Response) => {
       </div>
     `;
 
-    await transporter.sendMail({
-      from: `"SalonTraining" <${process.env.SMTP_USER}>`,
+    await mailClient.transporter.sendMail({
+      from: mailClient.from,
       to: email,
       subject: "Reset Your Password - SalonTraining",
       html: htmlContent,

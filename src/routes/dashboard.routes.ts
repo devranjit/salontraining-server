@@ -1,5 +1,5 @@
 import express from "express";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import {
   getAdminDashboardStats,
   getUserDashboardStats,
@@ -8,7 +8,7 @@ import {
 const router = express.Router();
 
 // Admin dashboard stats
-router.get("/admin/stats", protect, adminOnly, getAdminDashboardStats);
+router.get("/admin/stats", protect, managerOrAdmin, getAdminDashboardStats);
 
 // User dashboard stats (for logged-in users)
 router.get("/user/stats", protect, getUserDashboardStats);

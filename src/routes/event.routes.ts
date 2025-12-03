@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import {
   getEvents,
   getFeaturedEvents,
@@ -54,37 +54,37 @@ router.delete("/my/:id", protect, deleteMyEvent);
    ADMIN ROUTES
 -------------------------------------------- */
 // Get all events (admin)
-router.get("/admin/all", protect, adminOnly, adminGetAllEvents);
+router.get("/admin/all", protect, managerOrAdmin, adminGetAllEvents);
 
 // Get pending counts
-router.get("/admin/pending-counts", protect, adminOnly, getEventPendingCounts);
+router.get("/admin/pending-counts", protect, managerOrAdmin, getEventPendingCounts);
 
 // Get single event by ID (admin)
-router.get("/admin/:id", protect, adminOnly, adminGetEventById);
+router.get("/admin/:id", protect, managerOrAdmin, adminGetEventById);
 
 // Update event (admin)
-router.put("/admin/:id", protect, adminOnly, adminUpdateEvent);
+router.put("/admin/:id", protect, managerOrAdmin, adminUpdateEvent);
 
 // Delete event (admin)
-router.delete("/admin/:id", protect, adminOnly, adminDeleteEvent);
+router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteEvent);
 
 // Approve event
-router.patch("/admin/:id/approve", protect, adminOnly, approveEvent);
+router.patch("/admin/:id/approve", protect, managerOrAdmin, approveEvent);
 
 // Publish event
-router.patch("/admin/:id/publish", protect, adminOnly, publishEvent);
+router.patch("/admin/:id/publish", protect, managerOrAdmin, publishEvent);
 
 // Reject event
-router.patch("/admin/:id/reject", protect, adminOnly, rejectEvent);
+router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectEvent);
 
 // Request changes
-router.patch("/admin/:id/request-changes", protect, adminOnly, requestChangesEvent);
+router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestChangesEvent);
 
 // Set to pending
-router.patch("/admin/:id/set-pending", protect, adminOnly, setEventPending);
+router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setEventPending);
 
 // Toggle featured
-router.patch("/admin/:id/feature", protect, adminOnly, toggleFeaturedEvent);
+router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeaturedEvent);
 
 export default router;
 

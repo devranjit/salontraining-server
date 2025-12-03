@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import {
   getEducationListings,
   getFeaturedEducation,
@@ -34,17 +34,17 @@ router.put("/my/:id", protect, updateMyEducation);
 router.delete("/my/:id", protect, deleteMyEducation);
 
 /* ---------------------- ADMIN ROUTES ---------------------- */
-router.get("/admin/all", protect, adminOnly, adminGetAllEducation);
-router.get("/admin/pending-counts", protect, adminOnly, getEducationPendingCounts);
-router.get("/admin/:id", protect, adminOnly, adminGetEducationById);
-router.put("/admin/:id", protect, adminOnly, adminUpdateEducation);
-router.delete("/admin/:id", protect, adminOnly, adminDeleteEducation);
-router.patch("/admin/:id/approve", protect, adminOnly, approveEducation);
-router.patch("/admin/:id/publish", protect, adminOnly, publishEducation);
-router.patch("/admin/:id/reject", protect, adminOnly, rejectEducation);
-router.patch("/admin/:id/request-changes", protect, adminOnly, requestEducationChanges);
-router.patch("/admin/:id/set-pending", protect, adminOnly, setPendingEducation);
-router.patch("/admin/:id/feature", protect, adminOnly, toggleEducationFeatured);
+router.get("/admin/all", protect, managerOrAdmin, adminGetAllEducation);
+router.get("/admin/pending-counts", protect, managerOrAdmin, getEducationPendingCounts);
+router.get("/admin/:id", protect, managerOrAdmin, adminGetEducationById);
+router.put("/admin/:id", protect, managerOrAdmin, adminUpdateEducation);
+router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteEducation);
+router.patch("/admin/:id/approve", protect, managerOrAdmin, approveEducation);
+router.patch("/admin/:id/publish", protect, managerOrAdmin, publishEducation);
+router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectEducation);
+router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestEducationChanges);
+router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingEducation);
+router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleEducationFeatured);
 
 /* ---------------------- PUBLIC SINGLE (must be last) ---------------------- */
 router.get("/:id", getSingleEducation);

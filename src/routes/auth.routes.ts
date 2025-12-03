@@ -19,7 +19,8 @@ import {
   updateUser, 
   deleteUser, 
   changeUserRole,
-  getUserStats 
+  getUserStats,
+  updateUserStatus
 } from "../controllers/user.controller";
 
 const router = express.Router();
@@ -52,6 +53,7 @@ router.get("/users/:id", protect, adminOnly, getUserById);
 router.put("/users/:id", protect, adminOnly, updateUser);
 router.delete("/users/:id", protect, adminOnly, deleteUser);
 router.patch("/users/:id/role", protect, adminOnly, changeUserRole);
+router.patch("/users/:id/status", protect, adminOnly, updateUserStatus);
 router.post("/users/unlock", protect, adminOnly, unlockAccount); // Admin unlock
 
 export default router;

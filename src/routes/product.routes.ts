@@ -25,7 +25,7 @@ import {
   toggleFeatured,
   toggleProductStatus,
 } from "../controllers/product.controller";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 
 const router = Router();
 
@@ -52,18 +52,18 @@ router.post("/my/import/bulk", protect, bulkImportProducts);
 /* ===========================================
    ADMIN ROUTES
 ============================================ */
-router.get("/admin/all", protect, adminOnly, adminGetAllProducts);
-router.get("/admin/pending-counts", protect, adminOnly, getProductPendingCounts);
-router.post("/admin", protect, adminOnly, createProduct);
-router.put("/admin/:id", protect, adminOnly, updateProduct);
-router.delete("/admin/:id", protect, adminOnly, deleteProduct);
+router.get("/admin/all", protect, managerOrAdmin, adminGetAllProducts);
+router.get("/admin/pending-counts", protect, managerOrAdmin, getProductPendingCounts);
+router.post("/admin", protect, managerOrAdmin, createProduct);
+router.put("/admin/:id", protect, managerOrAdmin, updateProduct);
+router.delete("/admin/:id", protect, managerOrAdmin, deleteProduct);
 
 // Status management
-router.patch("/admin/:id/approve", protect, adminOnly, approveProduct);
-router.patch("/admin/:id/publish", protect, adminOnly, publishProduct);
-router.patch("/admin/:id/reject", protect, adminOnly, rejectProduct);
-router.patch("/admin/:id/pending", protect, adminOnly, setProductPending);
-router.patch("/admin/:id/feature", protect, adminOnly, toggleFeatured);
-router.put("/admin/:id/toggle-status", protect, adminOnly, toggleProductStatus);
+router.patch("/admin/:id/approve", protect, managerOrAdmin, approveProduct);
+router.patch("/admin/:id/publish", protect, managerOrAdmin, publishProduct);
+router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectProduct);
+router.patch("/admin/:id/pending", protect, managerOrAdmin, setProductPending);
+router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeatured);
+router.put("/admin/:id/toggle-status", protect, managerOrAdmin, toggleProductStatus);
 
 export default router;

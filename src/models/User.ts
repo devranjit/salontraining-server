@@ -8,8 +8,13 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ["user", "member", "st-member", "admin"],
+      enum: ["user", "member", "st-member", "manager", "admin"],
       default: "user",
+    },
+    status: {
+      type: String,
+      enum: ["active", "blocked"],
+      default: "active",
     },
 
     first_name: String,

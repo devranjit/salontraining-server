@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import multer from "multer";
 import { TrainerListing } from "../models/TrainerListing";
 
@@ -73,16 +73,16 @@ router.get("/featured", getFeaturedTrainers);    // GET /api/trainers/featured?l
 
 
 /* ---------------------- ADMIN ROUTES ---------------------- */
-router.get("/admin/pending-counts", protect, adminOnly, getPendingCounts);
-router.get("/admin/all", protect, adminOnly, adminGetAllTrainers);
-router.patch("/admin/:id/approve", protect, adminOnly, approveTrainer);
-router.patch("/admin/:id/reject", protect, adminOnly, rejectTrainer);
-router.patch("/admin/:id/set-pending", protect, adminOnly, setPendingTrainer);
-router.patch("/admin/:id/request-changes", protect, adminOnly, requestChanges);
-router.patch("/admin/:id/publish", protect, adminOnly, publishTrainer);
-router.patch("/admin/:id/update", protect, adminOnly, updateTrainerAdmin);
-router.patch("/admin/:id/feature", protect, adminOnly, toggleFeatured);
-router.get("/admin/:id", protect, adminOnly, adminGetTrainerById);
+router.get("/admin/pending-counts", protect, managerOrAdmin, getPendingCounts);
+router.get("/admin/all", protect, managerOrAdmin, adminGetAllTrainers);
+router.patch("/admin/:id/approve", protect, managerOrAdmin, approveTrainer);
+router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectTrainer);
+router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingTrainer);
+router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestChanges);
+router.patch("/admin/:id/publish", protect, managerOrAdmin, publishTrainer);
+router.patch("/admin/:id/update", protect, managerOrAdmin, updateTrainerAdmin);
+router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeatured);
+router.get("/admin/:id", protect, managerOrAdmin, adminGetTrainerById);
 
 
 /* ---------------------- CATCH SINGLE TRAINER ---------------------- */

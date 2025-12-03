@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 
 import {
   // Public
@@ -39,18 +39,18 @@ router.put("/my/:id", protect, updateMyJob);
 router.delete("/my/:id", protect, deleteMyJob);
 
 /* ---------------------- ADMIN ROUTES ---------------------- */
-router.get("/admin/all", protect, adminOnly, adminGetAllJobs);
-router.get("/admin/pending-counts", protect, adminOnly, getJobPendingCounts);
-router.get("/admin/:id", protect, adminOnly, adminGetJobById);
-router.put("/admin/:id", protect, adminOnly, adminUpdateJob);
-router.delete("/admin/:id", protect, adminOnly, adminDeleteJob);
-router.patch("/admin/:id/approve", protect, adminOnly, approveJob);
-router.patch("/admin/:id/publish", protect, adminOnly, publishJob);
-router.patch("/admin/:id/reject", protect, adminOnly, rejectJob);
-router.patch("/admin/:id/request-changes", protect, adminOnly, requestJobChanges);
-router.patch("/admin/:id/set-pending", protect, adminOnly, setPendingJob);
-router.patch("/admin/:id/filled", protect, adminOnly, markJobFilled);
-router.patch("/admin/:id/feature", protect, adminOnly, toggleJobFeatured);
+router.get("/admin/all", protect, managerOrAdmin, adminGetAllJobs);
+router.get("/admin/pending-counts", protect, managerOrAdmin, getJobPendingCounts);
+router.get("/admin/:id", protect, managerOrAdmin, adminGetJobById);
+router.put("/admin/:id", protect, managerOrAdmin, adminUpdateJob);
+router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteJob);
+router.patch("/admin/:id/approve", protect, managerOrAdmin, approveJob);
+router.patch("/admin/:id/publish", protect, managerOrAdmin, publishJob);
+router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectJob);
+router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestJobChanges);
+router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingJob);
+router.patch("/admin/:id/filled", protect, managerOrAdmin, markJobFilled);
+router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleJobFeatured);
 
 /* ---------------------- PUBLIC SINGLE JOB (must be last) ---------------------- */
 router.get("/:id", getSingleJob);
