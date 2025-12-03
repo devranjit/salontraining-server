@@ -7,7 +7,9 @@ import {
   verifyOtp,
   forgotPassword,
   resetPassword,
-  resetPasswordWithOtp
+  resetPasswordWithOtp,
+  unlockAccount,
+  unlockWithOtp
 } from "../controllers/auth.controller";
 import { protect, adminOnly } from "../middleware/auth";
 import { updateProfile } from "../controllers/profile.controller";
@@ -35,6 +37,9 @@ router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 router.post("/reset-password-otp", resetPasswordWithOtp);
 
+// Account unlock routes
+router.post("/unlock-otp", unlockWithOtp); // Self-service unlock with OTP
+
 // Protected routes
 router.get("/me", protect, getMe);
 router.put("/update-profile", protect, updateProfile);
@@ -47,5 +52,6 @@ router.get("/users/:id", protect, adminOnly, getUserById);
 router.put("/users/:id", protect, adminOnly, updateUser);
 router.delete("/users/:id", protect, adminOnly, deleteUser);
 router.patch("/users/:id/role", protect, adminOnly, changeUserRole);
+router.post("/users/unlock", protect, adminOnly, unlockAccount); // Admin unlock
 
 export default router;

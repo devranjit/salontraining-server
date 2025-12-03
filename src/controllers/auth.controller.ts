@@ -508,3 +508,81 @@ export const resetPasswordWithOtp = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Failed to reset password" });
   }
 };
+
+// ---------------------------------------------
+// UNLOCK ACCOUNT (Admin only)
+// ---------------------------------------------
+export const unlockAccount = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user: any = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+
+    return res.json({ 
+      success: true, 
+      message: `Account ${email} has been unlocked.` 
+    });
+
+  } catch (err) {
+    console.error("Unlock account error:", err);
+    return res.status(500).json({ message: "Failed to unlock account" });
+  }
+};
+
+// ---------------------------------------------
+// UNLOCK ACCOUNT VIA OTP (Self-service)
+// ---------------------------------------------
+export const unlockWithOtp = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
+    }
+
+    const user: any = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (!user.otp || !user.otpExpires) {
+      return res.status(400).json({ message: "No verification code requested" });
+    }
+
+    if (Date.now() > user.otpExpires) {
+      user.otp = null;
+      user.otpExpires = null;
+      await user.save();
+      return res.status(400).json({ message: "Verification code expired" });
+    }
+
+    if (user.otp !== otp) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    // Unlock the account
+    user.otp = null;
+    user.otpExpires = null;
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+
+    return res.json({ 
+      success: true, 
+      message: "Account unlocked. You can now log in." 
+    });
+
+  } catch (err) {
+    console.error("Unlock with OTP error:", err);
+    return res.status(500).json({ message: "Failed to unlock account" });
+  }
+};

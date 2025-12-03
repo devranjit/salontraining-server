@@ -44,7 +44,6 @@ app.use(express.urlencoded({ extended: true }));
 // -----------------------------------------
 // CORS CONFIG
 // -----------------------------------------
-// Allowed origins list
 const allowedOrigins = [
   // Local Development
   "http://localhost:5173",
@@ -57,6 +56,15 @@ const allowedOrigins = [
   "https://salontraining.com",
   "https://www.salontraining.com",
 ];
+
+// Handle preflight OPTIONS requests explicitly
+app.options("*", cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  maxAge: 86400, // Cache preflight for 24 hours
+}));
 
 app.use(
   cors({
@@ -74,12 +82,13 @@ app.use(
         return callback(null, true);
       }
       
-      // Block other origins
+      // Log blocked origins for debugging
+      console.log("CORS blocked origin:", origin);
       return callback(new Error("Not allowed by CORS"), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
 
