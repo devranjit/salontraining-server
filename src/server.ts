@@ -17,6 +17,8 @@ import blogRoutes from "./routes/blog.routes";
 import jobRoutes from "./routes/job.routes";
 import educationRoutes from "./routes/education.routes";
 import memberVideoRoutes from "./routes/memberVideo.routes";
+import maintenanceRoutes from "./routes/maintenance.routes";
+import dashboardRoutes from "./routes/dashboard.routes";
 import "./lib/cloudinary";
 
 
@@ -102,6 +104,8 @@ app.use("/api/blogs", blogRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/education", educationRoutes);
 app.use("/api/member-videos", memberVideoRoutes);
+app.use("/api/system/maintenance", maintenanceRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
 
 // -----------------------------------------

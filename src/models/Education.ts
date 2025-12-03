@@ -128,3 +128,8 @@ educationSchema.index({ price: 1 });
 export const Education = mongoose.model("Education", educationSchema);
 
 
+
+
+
+
+

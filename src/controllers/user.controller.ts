@@ -101,10 +101,12 @@ export const changeUserRole = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { role } = req.body;
 
-    if (!["user", "admin"].includes(role)) {
+    const allowedRoles = ["user", "member", "st-member", "admin"];
+
+    if (!allowedRoles.includes(role)) {
       return res.status(400).json({ 
         success: false, 
-        message: "Invalid role. Must be 'user' or 'admin'" 
+        message: "Invalid role. Must be one of: user, member, st-member, admin" 
       });
     }
 
@@ -144,6 +146,8 @@ export const getUserStats = async (req: Request, res: Response) => {
     const totalUsers = await User.countDocuments();
     const adminUsers = await User.countDocuments({ role: "admin" });
     const regularUsers = await User.countDocuments({ role: "user" });
+    const stMembers = await User.countDocuments({ role: "st-member" });
+    const memberUsers = await User.countDocuments({ role: { $in: ["member", "st-member"] } });
     
     // Users registered in last 30 days
     const thirtyDaysAgo = new Date();
@@ -158,6 +162,8 @@ export const getUserStats = async (req: Request, res: Response) => {
         total: totalUsers,
         admins: adminUsers,
         users: regularUsers,
+        members: memberUsers,
+        stMembers,
         newThisMonth: newUsers,
       },
     });

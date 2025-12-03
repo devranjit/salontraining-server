@@ -45,8 +45,10 @@ export const memberOrAdmin = (req: any, res: Response, next: NextFunction) => {
     });
   }
 
-  // Allow if user is admin or has member role
-  if (req.user.role === "admin" || req.user.role === "member") {
+  const allowedRoles = ["admin", "member", "st-member"];
+
+  // Allow if user is admin or has an approved member role
+  if (allowedRoles.includes(req.user.role)) {
     return next();
   }
 

@@ -101,3 +101,8 @@ blogSchema.index({ slug: 1 });
 export const Blog = mongoose.model("Blog", blogSchema);
 
 
+
+
+
+
+

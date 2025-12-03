@@ -52,3 +52,8 @@ router.get("/:id", getSingleEducation);
 export default router;
 
 
+
+
+
+
+

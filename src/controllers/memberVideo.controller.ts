@@ -87,9 +87,9 @@ export const getVideo = async (req: Request, res: Response) => {
 // ---------------------------------------------
 export const getCategories = async (req: Request, res: Response) => {
   try {
-    const categories = await MemberVideo.distinct("category", { 
+    const categories = await MemberVideo.distinct("category", {
       status: "published",
-      category: { $ne: null, $ne: "" }
+      category: { $nin: [null, ""] },
     });
 
     return res.json({ success: true, categories });
