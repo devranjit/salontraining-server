@@ -10,6 +10,12 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+const FRONTEND_BASE_URL = (
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "production"
+    ? "https://salontraining.com"
+    : "http://localhost:5173")
+).replace(/\/+$/, "");
 
 const REQUIRED_SMTP_VARS = [
   "SMTP_HOST",
@@ -437,7 +443,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
     await user.save();
 
     // Create reset URL
-    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+    const resetUrl = `${FRONTEND_BASE_URL}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
     // Send email
     let mailClient: MailClient;
