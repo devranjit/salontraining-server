@@ -16,6 +16,7 @@ import { updateProfile } from "../controllers/profile.controller";
 import { 
   getAllUsers, 
   getUserById, 
+  createUser,
   updateUser, 
   deleteUser, 
   changeUserRole,
@@ -50,6 +51,7 @@ router.post("/update-profile", protect, updateProfile); // Also accept POST
 router.get("/users", protect, adminOnly, getAllUsers);
 router.get("/users/stats", protect, adminOnly, getUserStats);
 router.get("/users/:id", protect, adminOnly, getUserById);
+router.post("/users", protect, adminOnly, createUser);
 router.put("/users/:id", protect, adminOnly, updateUser);
 router.delete("/users/:id", protect, adminOnly, deleteUser);
 router.patch("/users/:id/role", protect, adminOnly, changeUserRole);
