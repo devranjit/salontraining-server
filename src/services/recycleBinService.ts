@@ -9,14 +9,17 @@ import MemberVideo from "../models/MemberVideo";
 import User from "../models/User";
 import Category from "../models/Category";
 import { RecycleBinItem } from "../models/RecycleBinItem";
+import { TrainerListing } from "../models/TrainerListing";
 import { dispatchEmailEvent } from "./emailService";
 
-const RETENTION_DAYS = 15;
+// Keep items for 15 days, then show a 5-day final warning window before purge.
+const RETENTION_DAYS = 20;
 const WARNING_DAYS = 5;
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
 type EntityKey =
   | "listing"
+  | "trainer"
   | "event"
   | "product"
   | "job"
@@ -30,6 +33,7 @@ type Metadata = Record<string, any>;
 
 const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
   listing: Listing,
+  trainer: TrainerListing,
   event: Event,
   product: Product,
   job: Job,
@@ -43,6 +47,7 @@ const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
 const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
   switch (entityType) {
     case "listing":
+    case "trainer":
     case "event":
     case "product":
     case "job":

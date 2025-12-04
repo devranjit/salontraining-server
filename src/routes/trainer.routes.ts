@@ -21,6 +21,7 @@ import {
   getPendingCounts,
   getAllTrainers,
   getFeaturedTrainers,
+  adminDeleteTrainer,
 } from "../controllers/trainer.controller";
 
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
@@ -82,6 +83,7 @@ router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestChang
 router.patch("/admin/:id/publish", protect, managerOrAdmin, publishTrainer);
 router.patch("/admin/:id/update", protect, managerOrAdmin, updateTrainerAdmin);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeatured);
+router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteTrainer);
 router.get("/admin/:id", protect, managerOrAdmin, adminGetTrainerById);
 
 

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
 import mongoose from "mongoose";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 const DISALLOWED_UPDATE_FIELDS = [
   "_id",
@@ -452,6 +453,34 @@ export const toggleFeatured = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Delete Trainer
+// ===============================
+export const adminDeleteTrainer = async (req: any, res: Response) => {
+  try {
+    const listing = await TrainerListing.findById(req.params.id);
+
+    if (!listing) {
+      return res.status(404).json({
+        success: false,
+        message: "Trainer not found",
+      });
+    }
+
+    await moveToRecycleBin("trainer", listing, { deletedBy: req.user?.id });
+
+    return res.json({
+      success: true,
+      message: "Trainer listing moved to recycle bin",
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Failed to delete trainer",
+    });
   }
 };
 

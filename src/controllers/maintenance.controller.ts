@@ -4,10 +4,18 @@ import MaintenanceSetting from "../models/MaintenanceSetting";
 import { User } from "../models/User";
 
 async function getOrCreateSetting() {
-  let setting = await MaintenanceSetting.findOne();
+  const settings = await MaintenanceSetting.find().sort({ createdAt: -1 });
+  let setting = settings[0];
+
   if (!setting) {
     setting = await MaintenanceSetting.create({});
   }
+
+  if (settings.length > 1) {
+    const idsToDelete = settings.slice(1).map((doc) => doc._id);
+    await MaintenanceSetting.deleteMany({ _id: { $in: idsToDelete } });
+  }
+
   return setting;
 }
 
