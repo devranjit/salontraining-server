@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import MemberVideo from "../models/MemberVideo";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // Helper to extract YouTube video ID from URL
 function extractYouTubeId(url: string): string | null {
@@ -237,19 +238,23 @@ export const updateVideo = async (req: any, res: Response) => {
 // ---------------------------------------------
 // ADMIN: DELETE VIDEO
 // ---------------------------------------------
-export const deleteVideo = async (req: Request, res: Response) => {
+export const deleteVideo = async (req: any, res: Response) => {
   try {
     const { id } = req.params;
 
-    const video = await MemberVideo.findByIdAndDelete(id);
+    const video = await MemberVideo.findById(id);
 
     if (!video) {
       return res.status(404).json({ message: "Video not found" });
     }
 
-    return res.json({ 
-      success: true, 
-      message: "Video deleted successfully" 
+    await moveToRecycleBin("memberVideo", video, {
+      deletedBy: req.user?.id,
+    });
+
+    return res.json({
+      success: true,
+      message: "Video moved to recycle bin",
     });
   } catch (err) {
     console.error("Delete video error:", err);

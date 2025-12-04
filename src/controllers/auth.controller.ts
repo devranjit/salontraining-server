@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
 import { Request, Response } from "express";
-import nodemailer from "nodemailer";
+import { dispatchEmailEvent } from "../services/emailService";
 
 // Security constants
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -16,65 +16,6 @@ const FRONTEND_BASE_URL = (
     ? "https://salontraining.com"
     : "http://localhost:5173")
 ).replace(/\/+$/, "");
-
-const REQUIRED_SMTP_VARS = [
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_SECURE",
-  "SMTP_USER",
-  "SMTP_PASS",
-  "SMTP_FROM",
-] as const;
-
-const parseBoolean = (value: string) => {
-  const normalized = value.trim().toLowerCase();
-  return normalized === "true" || normalized === "1" || normalized === "yes";
-};
-
-type MailClient = {
-  transporter: nodemailer.Transporter;
-  from: string;
-};
-
-const resolveSmtpConfig = () => {
-  const missingVars = REQUIRED_SMTP_VARS.filter((key) => !process.env[key]);
-
-  if (missingVars.length) {
-    throw new Error(
-      `Missing SMTP environment variables: ${missingVars.join(", ")}`
-    );
-  }
-
-  const port = Number(process.env.SMTP_PORT);
-  if (Number.isNaN(port)) {
-    throw new Error("SMTP_PORT must be a valid number");
-  }
-
-  return {
-    host: process.env.SMTP_HOST as string,
-    port,
-    secure: parseBoolean(process.env.SMTP_SECURE as string),
-    auth: {
-      user: process.env.SMTP_USER as string,
-      pass: process.env.SMTP_PASS as string,
-    },
-    from: process.env.SMTP_FROM as string,
-  };
-};
-
-const getTransporter = (): MailClient => {
-  const smtpConfig = resolveSmtpConfig();
-
-  return {
-    transporter: nodemailer.createTransport({
-      host: smtpConfig.host,
-      port: smtpConfig.port,
-      secure: smtpConfig.secure,
-      auth: smtpConfig.auth,
-    }),
-    from: smtpConfig.from,
-  };
-};
 
 // Generate secure random token
 const generateSecureToken = () => {
@@ -143,7 +84,19 @@ export const registerUser = async (req: Request, res: Response) => {
       city,
     });
 
-    return res.json({ success: true, user: { ...user.toObject(), password: undefined } });
+    const safeUser = { ...user.toObject(), password: undefined };
+
+    dispatchEmailEvent("auth.registered", {
+      to: safeUser.email,
+      data: {
+        user: {
+          name: safeUser.name || safeUser.email,
+          email: safeUser.email,
+        },
+      },
+    }).catch((err) => console.error("register email failed:", err));
+
+    return res.json({ success: true, user: safeUser });
   } catch (err) {
     console.error("Registration error:", err);
     return res.status(500).json({ message: "Registration failed" });
@@ -224,6 +177,21 @@ export const loginUser = async (req: Request, res: Response) => {
       { expiresIn: "7d" }
     );
 
+    dispatchEmailEvent("auth.login", {
+      to: user.email,
+      data: {
+        user: {
+          name: user.name || user.email,
+          email: user.email,
+        },
+        context: {
+          timestamp: new Date().toISOString(),
+          ip: req.headers["x-forwarded-for"] || req.ip,
+          userAgent: req.headers["user-agent"],
+        },
+      },
+    }).catch((err) => console.error("login email failed:", err));
+
     return res.json({
       success: true,
       token,
@@ -297,54 +265,24 @@ export const sendOtp = async (req: Request, res: Response) => {
     user.otpExpires = new Date(Date.now() + OTP_EXPIRY);
     await user.save();
 
-    // Send email
-    let mailClient: MailClient;
     try {
-      mailClient = getTransporter();
-    } catch (configError) {
-      console.error("SMTP configuration error (sendOtp):", configError);
+      await dispatchEmailEvent("auth.otp", {
+        to: email,
+        data: {
+          user: {
+            name: user.name || user.email,
+            email: user.email,
+          },
+          otp,
+          purpose,
+        },
+      });
+    } catch (error) {
+      console.error("Send OTP email failed:", error);
       return res.status(500).json({
-        message: "Email service misconfigured. Unable to send verification code.",
-        debug:
-          configError instanceof Error ? configError.message : configError,
+        message: "Unable to send verification code. Please try again later.",
       });
     }
-    
-    const subject = purpose === "reset" 
-      ? "Reset Your Password - SalonTraining" 
-      : "Your Login Code - SalonTraining";
-    
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #d57a2c; margin: 0;">SalonTraining</h1>
-        </div>
-        <div style="background: #f8f9fa; border-radius: 10px; padding: 30px; text-align: center;">
-          <h2 style="color: #333; margin-bottom: 10px;">
-            ${purpose === "reset" ? "Password Reset Code" : "Your Login Code"}
-          </h2>
-          <p style="color: #666; margin-bottom: 20px;">
-            Use the following code to ${purpose === "reset" ? "reset your password" : "log in to your account"}:
-          </p>
-          <div style="background: #d57a2c; color: white; font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px 40px; border-radius: 8px; display: inline-block;">
-            ${otp}
-          </div>
-          <p style="color: #999; margin-top: 20px; font-size: 14px;">
-            This code expires in 5 minutes.
-          </p>
-        </div>
-        <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
-          If you didn't request this code, please ignore this email.
-        </p>
-      </div>
-    `;
-
-    await mailClient.transporter.sendMail({
-      from: mailClient.from,
-      to: email,
-      subject,
-      html: htmlContent,
-    });
 
     return res.json({ 
       success: true, 
@@ -445,50 +383,17 @@ export const forgotPassword = async (req: Request, res: Response) => {
     // Create reset URL
     const resetUrl = `${FRONTEND_BASE_URL}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
-    // Send email
-    let mailClient: MailClient;
-    try {
-      mailClient = getTransporter();
-    } catch (configError) {
-      console.error("SMTP configuration error (forgotPassword):", configError);
-      return res.status(500).json({
-        message: "Email service misconfigured. Unable to send reset link.",
-        debug:
-          configError instanceof Error ? configError.message : configError,
-      });
-    }
-    
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #d57a2c; margin: 0;">SalonTraining</h1>
-        </div>
-        <div style="background: #f8f9fa; border-radius: 10px; padding: 30px;">
-          <h2 style="color: #333; margin-bottom: 10px; text-align: center;">Reset Your Password</h2>
-          <p style="color: #666; margin-bottom: 20px; text-align: center;">
-            We received a request to reset your password. Click the button below to create a new password:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" style="background: #d57a2c; color: white; padding: 14px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">
-              Reset Password
-            </a>
-          </div>
-          <p style="color: #999; font-size: 14px; text-align: center;">
-            This link expires in 1 hour.
-          </p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="color: #999; font-size: 12px; text-align: center;">
-            If you didn't request a password reset, please ignore this email or contact support if you have concerns.
-          </p>
-        </div>
-      </div>
-    `;
-
-    await mailClient.transporter.sendMail({
-      from: mailClient.from,
+    await dispatchEmailEvent("auth.password-reset", {
       to: email,
-      subject: "Reset Your Password - SalonTraining",
-      html: htmlContent,
+      data: {
+        user: {
+          name: user.name || user.email,
+          email: user.email,
+        },
+        reset: {
+          url: resetUrl,
+        },
+      },
     });
 
     return res.json({ 

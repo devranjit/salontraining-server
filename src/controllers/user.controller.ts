@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import User from "../models/User";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 const ALLOWED_ROLES = ["user", "member", "st-member", "manager", "admin"];
 const ALLOWED_STATUSES = ["active", "blocked"];
@@ -192,7 +193,7 @@ export const updateUser = async (req: Request, res: Response) => {
 // ------------------------------------------------------
 // DELETE USER (Admin)
 // ------------------------------------------------------
-export const deleteUser = async (req: Request, res: Response) => {
+export const deleteUser = async (req: any, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -210,9 +211,9 @@ export const deleteUser = async (req: Request, res: Response) => {
       });
     }
 
-    await User.findByIdAndDelete(id);
+    await moveToRecycleBin("user", user, { deletedBy: req.user?.id });
 
-    res.json({ success: true, message: "User deleted successfully" });
+    res.json({ success: true, message: "User moved to recycle bin" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error" });
   }

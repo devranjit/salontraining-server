@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Education } from "../models/Education";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // Helper to get image URL from various formats
 const getImageUrl = (item: any): string | undefined => {
@@ -314,13 +315,15 @@ export const updateMyEducation = async (req: any, res: Response) => {
 // ===============================
 export const deleteMyEducation = async (req: any, res: Response) => {
   try {
-    const listing = await Education.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
+    const listing = await Education.findOne({ _id: req.params.id, owner: req.user._id });
 
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
     }
 
-    return res.json({ success: true, message: "Education listing deleted successfully" });
+    await moveToRecycleBin("education", listing, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Education listing moved to recycle bin" });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -446,15 +449,17 @@ export const adminUpdateEducation = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Delete Education
 // ===============================
-export const adminDeleteEducation = async (req: Request, res: Response) => {
+export const adminDeleteEducation = async (req: any, res: Response) => {
   try {
-    const listing = await Education.findByIdAndDelete(req.params.id);
+    const listing = await Education.findById(req.params.id);
 
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found" });
     }
 
-    return res.json({ success: true, message: "Education listing deleted successfully" });
+    await moveToRecycleBin("education", listing, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Education listing moved to recycle bin" });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }

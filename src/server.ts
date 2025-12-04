@@ -19,6 +19,9 @@ import educationRoutes from "./routes/education.routes";
 import memberVideoRoutes from "./routes/memberVideo.routes";
 import maintenanceRoutes from "./routes/maintenance.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
+import emailAdminRoutes from "./routes/emailAdmin.routes";
+import recycleBinRoutes from "./routes/recycleBin.routes";
+import { ensureEmailDefaults } from "./services/emailService";
 import "./lib/cloudinary";
 
 
@@ -26,10 +29,19 @@ import "./lib/cloudinary";
 // LAZY DB CONNECT (REQUIRED FOR VERCEL)
 // -----------------------------------------
 let dbConnected = false;
+let emailBootstrapped = false;
 async function initDB() {
   if (!dbConnected) {
     await connectDB();
     dbConnected = true;
+  }
+  if (!emailBootstrapped) {
+    try {
+      await ensureEmailDefaults();
+      emailBootstrapped = true;
+    } catch (err) {
+      console.error("Failed to ensure email templates:", err);
+    }
   }
 }
 
@@ -114,6 +126,8 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/education", educationRoutes);
 app.use("/api/member-videos", memberVideoRoutes);
 app.use("/api/system/maintenance", maintenanceRoutes);
+app.use("/api/admin/email", emailAdminRoutes);
+app.use("/api/admin/recycle-bin", recycleBinRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
 

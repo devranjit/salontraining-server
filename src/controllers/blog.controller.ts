@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Blog } from "../models/Blog";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // ===============================
 // PUBLIC — Get All Blogs (Published)
@@ -217,11 +218,11 @@ export const updateMyBlog = async (req: Request, res: Response) => {
 // ===============================
 // USER — Delete My Blog
 // ===============================
-export const deleteMyBlog = async (req: Request, res: Response) => {
+export const deleteMyBlog = async (req: any, res: Response) => {
   try {
     const userId = req.user?._id || req.user?.id;
-    
-    const blog = await Blog.findOneAndDelete({
+
+    const blog = await Blog.findOne({
       _id: req.params.id,
       owner: userId,
     });
@@ -233,7 +234,9 @@ export const deleteMyBlog = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ success: true, message: "Blog deleted" });
+    await moveToRecycleBin("blog", blog, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Blog moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({
       success: false,
@@ -334,15 +337,17 @@ export const adminUpdateBlog = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Delete Blog
 // ===============================
-export const adminDeleteBlog = async (req: Request, res: Response) => {
+export const adminDeleteBlog = async (req: any, res: Response) => {
   try {
-    const blog = await Blog.findByIdAndDelete(req.params.id);
+    const blog = await Blog.findById(req.params.id);
 
     if (!blog) {
       return res.status(404).json({ success: false, message: "Blog not found" });
     }
 
-    return res.json({ success: true, message: "Blog deleted" });
+    await moveToRecycleBin("blog", blog, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Blog moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

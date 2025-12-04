@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Listing } from "../models/Listing";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 export const createListing = async (req: Request, res: Response) => {
   try {
@@ -50,9 +51,9 @@ export const getListing = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteListing = async (req: Request, res: Response) => {
+export const deleteListing = async (req: any, res: Response) => {
   try {
-    const listing = await Listing.findOneAndDelete({
+    const listing = await Listing.findOne({
       _id: req.params.id,
       owner: req.user._id,
     });
@@ -62,7 +63,9 @@ export const deleteListing = async (req: Request, res: Response) => {
         .status(404)
         .json({ success: false, message: "Listing not found or not authorized" });
 
-    return res.json({ success: true, message: "Listing deleted" });
+    await moveToRecycleBin("listing", listing, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Listing moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import Category from "../models/Category";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // ---------------------------------------
 // CREATE CATEGORY (Admin Only)
@@ -43,9 +44,9 @@ export const getCategories = async (req: Request, res: Response) => {
 // ---------------------------------------
 // DELETE CATEGORY (Admin Only)
 // ---------------------------------------
-export const deleteCategory = async (req: Request, res: Response) => {
+export const deleteCategory = async (req: any, res: Response) => {
   try {
-    const cat = await Category.findByIdAndDelete(req.params.id);
+    const cat = await Category.findById(req.params.id);
 
     if (!cat) {
       return res.status(404).json({
@@ -54,7 +55,9 @@ export const deleteCategory = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ success: true, message: "Category deleted" });
+    await moveToRecycleBin("category", cat, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Category moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Job } from "../models/Job";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // ===============================
 // PUBLIC — Get Jobs (with filters)
@@ -203,18 +204,20 @@ export const updateMyJob = async (req: Request, res: Response) => {
 // ===============================
 // USER — Delete My Job
 // ===============================
-export const deleteMyJob = async (req: Request, res: Response) => {
+export const deleteMyJob = async (req: any, res: Response) => {
   try {
-    const job = await Job.findOneAndDelete({
+    const job = await Job.findOne({
       _id: req.params.id,
-      owner: (req as any).user._id,
+      owner: req.user._id,
     });
 
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
 
-    return res.json({ success: true, message: "Job deleted" });
+    await moveToRecycleBin("job", job, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Job moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -302,15 +305,17 @@ export const adminUpdateJob = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Delete Job
 // ===============================
-export const adminDeleteJob = async (req: Request, res: Response) => {
+export const adminDeleteJob = async (req: any, res: Response) => {
   try {
-    const job = await Job.findByIdAndDelete(req.params.id);
+    const job = await Job.findById(req.params.id);
 
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
 
-    return res.json({ success: true, message: "Job deleted" });
+    await moveToRecycleBin("job", job, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Job moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Event } from "../models/Event";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // ===============================
 // PUBLIC — Get All Events (Published)
@@ -319,7 +320,7 @@ export const updateMyEvent = async (req: any, res: Response) => {
 // ===============================
 export const deleteMyEvent = async (req: any, res: Response) => {
   try {
-    const event = await Event.findOneAndDelete({
+    const event = await Event.findOne({
       _id: req.params.id,
       owner: req.user.id,
     });
@@ -331,7 +332,9 @@ export const deleteMyEvent = async (req: any, res: Response) => {
       });
     }
 
-    return res.json({ success: true, message: "Event deleted" });
+    await moveToRecycleBin("event", event, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Event moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -427,15 +430,17 @@ export const adminUpdateEvent = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Delete Event
 // ===============================
-export const adminDeleteEvent = async (req: Request, res: Response) => {
+export const adminDeleteEvent = async (req: any, res: Response) => {
   try {
-    const event = await Event.findByIdAndDelete(req.params.id);
+    const event = await Event.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({ success: false, message: "Event not found" });
     }
 
-    return res.json({ success: true, message: "Event deleted" });
+    await moveToRecycleBin("event", event, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Event moved to recycle bin" });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

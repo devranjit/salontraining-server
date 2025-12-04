@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Product from "../models/Product";
 import Category from "../models/Category";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 // ============================================================
 // PUBLIC ROUTES
@@ -328,9 +329,9 @@ export const deleteMyProduct = async (req: any, res: Response) => {
       });
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    await moveToRecycleBin("product", product, { deletedBy: req.user?.id });
 
-    return res.json({ success: true, message: "Product deleted" });
+    return res.json({ success: true, message: "Product moved to recycle bin" });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -640,9 +641,9 @@ export const deleteProduct = async (req: any, res: Response) => {
       });
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    await moveToRecycleBin("product", product, { deletedBy: req.user?.id });
 
-    return res.json({ success: true, message: "Product deleted" });
+    return res.json({ success: true, message: "Product moved to recycle bin" });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
