@@ -12,6 +12,7 @@ import {
   deleteMyProduct,
   importProduct,
   bulkImportProducts,
+  getProductControlPanel,
   // Admin
   adminGetAllProducts,
   getProductPendingCounts,
@@ -24,6 +25,7 @@ import {
   setProductPending,
   toggleFeatured,
   toggleProductStatus,
+  adminChangeProductOwner,
 } from "../controllers/product.controller";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 
@@ -42,6 +44,7 @@ router.get("/:id", getSingleProduct);
 ============================================ */
 router.post("/my", protect, createUserProduct);
 router.get("/my/list", protect, getMyProducts);
+router.get("/control-panel", protect, getProductControlPanel);
 router.put("/my/:id", protect, updateMyProduct);
 router.delete("/my/:id", protect, deleteMyProduct);
 
@@ -64,6 +67,7 @@ router.patch("/admin/:id/publish", protect, managerOrAdmin, publishProduct);
 router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectProduct);
 router.patch("/admin/:id/pending", protect, managerOrAdmin, setProductPending);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeatured);
+router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeProductOwner);
 router.put("/admin/:id/toggle-status", protect, managerOrAdmin, toggleProductStatus);
 
 export default router;

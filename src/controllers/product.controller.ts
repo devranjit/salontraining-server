@@ -2,6 +2,20 @@ import { Request, Response } from "express";
 import Product from "../models/Product";
 import Category from "../models/Category";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { User } from "../models/User";
+
+const ROLE_CONTROL_ACTIONS: Record<string, string[]> = {
+  admin: ["create", "edit_any", "delete_any", "approve", "publish", "feature"],
+  manager: ["create", "edit_any", "delete_any", "approve", "publish", "feature"],
+  "st-member": ["create", "edit_own", "delete_own", "request_review"],
+  member: ["create", "edit_own", "delete_own", "request_review"],
+  user: ["create", "edit_own", "delete_own", "request_review"],
+  default: ["view"],
+};
+
+const getActionsForRole = (role?: string) =>
+  ROLE_CONTROL_ACTIONS[role as keyof typeof ROLE_CONTROL_ACTIONS] ||
+  ROLE_CONTROL_ACTIONS.default;
 
 // ============================================================
 // PUBLIC ROUTES
@@ -337,6 +351,62 @@ export const deleteMyProduct = async (req: any, res: Response) => {
   }
 };
 
+// ============================================================
+// CONTROL PANEL (role-aware)
+// ============================================================
+export const getProductControlPanel = async (req: any, res: Response) => {
+  try {
+    const role = req.user?.role || "user";
+    const isModerator = ["admin", "manager"].includes(role);
+    const scope = isModerator ? "global" : "owner";
+    const baseFilter = isModerator ? {} : { owner: req.user?.id };
+
+    const statusKeys: Array<"pending" | "approved" | "published" | "rejected" | "draft"> = [
+      "pending",
+      "approved",
+      "published",
+      "rejected",
+      "draft",
+    ];
+
+    const statusCountsEntries = await Promise.all(
+      statusKeys.map(async (status) => {
+        const count = await Product.countDocuments({ ...baseFilter, status });
+        return [status, count] as const;
+      })
+    );
+
+    const counts = Object.fromEntries(statusCountsEntries) as Record<string, number>;
+    counts.total = await Product.countDocuments(baseFilter);
+    counts.featured = await Product.countDocuments({ ...baseFilter, featured: true });
+    counts.lowStock = await Product.countDocuments({
+      ...baseFilter,
+      stock: { $lte: 5 },
+    });
+
+    const recentProducts = await Product.find(baseFilter)
+      .populate("owner", "name email role")
+      .populate("category", "name")
+      .sort({ createdAt: -1 })
+      .limit(25);
+
+    return res.json({
+      success: true,
+      role,
+      scope,
+      allowedActions: getActionsForRole(role),
+      counts,
+      products: recentProducts,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load product control panel",
+      error: error.message,
+    });
+  }
+};
+
 // IMPORT PRODUCT FROM EXTERNAL SOURCE (User)
 export const importProduct = async (req: any, res: Response) => {
   try {
@@ -625,6 +695,47 @@ export const updateProduct = async (req: any, res: Response) => {
       product: updated,
     });
   } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// CHANGE PRODUCT OWNER (Admin)
+export const adminChangeProductOwner = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const newOwner = await User.findById(userId).select("name email status");
+    if (!newOwner) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (newOwner.status === "blocked") {
+      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
+    }
+
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { owner: newOwner._id },
+      { new: true }
+    ).populate("owner", "name email");
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Product owner updated",
+      product,
+      owner: product.owner,
+    });
+  } catch (error: any) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
+    }
     return res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -23,6 +23,7 @@ import {
   setPendingBlog,
   toggleBlogFeatured,
   getBlogPendingCounts,
+  adminChangeBlogOwner,
 } from "../controllers/blog.controller";
 
 const router = Router();
@@ -48,6 +49,7 @@ router.patch("/admin/:id/publish", protect, managerOrAdmin, publishBlog);
 router.patch("/admin/:id/reject", protect, managerOrAdmin, rejectBlog);
 router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestBlogChanges);
 router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingBlog);
+router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeBlogOwner);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleBlogFeatured);
 
 /* ---------------------- PUBLIC SINGLE BLOG (must be last) ---------------------- */

@@ -19,6 +19,7 @@ import {
   setEventPending,
   toggleFeaturedEvent,
   getEventPendingCounts,
+  adminChangeEventOwner,
 } from "../controllers/event.controller";
 
 const router = Router();
@@ -85,6 +86,9 @@ router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setEventPending)
 
 // Toggle featured
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeaturedEvent);
+
+// Change owner
+router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeEventOwner);
 
 export default router;
 

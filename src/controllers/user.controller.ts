@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import User from "../models/User";
 import { moveToRecycleBin } from "../services/recycleBinService";
 
@@ -41,6 +42,44 @@ export const getAllUsers = async (req: any, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// SEARCH USERS (Admin + Manager)
+// ------------------------------------------------------
+export const searchUsers = async (req: Request, res: Response) => {
+  try {
+    const { q = "", limit = 8 } = req.query;
+    const searchTerm = String(q).trim();
+    const maxResults = Math.min(Math.max(parseInt(limit as string, 10) || 8, 1), 25);
+
+    const query: any = {};
+    if (searchTerm) {
+      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      const orConditions: Array<Record<string, any>> = [
+        { name: regex },
+        { email: regex },
+        { first_name: regex },
+        { last_name: regex },
+      ];
+
+      if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+        orConditions.push({ _id: searchTerm });
+      }
+
+      query.$or = orConditions;
+    }
+
+    const users = await User.find(query)
+      .select("name email role status")
+      .sort({ createdAt: -1 })
+      .limit(maxResults);
+
+    res.json({ success: true, users });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message || "Server error" });
   }
 };
 

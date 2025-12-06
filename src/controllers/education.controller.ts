@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Education } from "../models/Education";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { User } from "../models/User";
 
 // Helper to get image URL from various formats
 const getImageUrl = (item: any): string | undefined => {
@@ -442,6 +443,49 @@ export const adminUpdateEducation = async (req: Request, res: Response) => {
 
     return res.json({ success: true, message: "Education listing updated successfully", listing });
   } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ===============================
+// ADMIN — Change Education Owner
+// ===============================
+export const adminChangeEducationOwner = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const newOwner = await User.findById(userId).select("name email status");
+    if (!newOwner) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (newOwner.status === "blocked") {
+      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
+    }
+
+    const listing = await Education.findByIdAndUpdate(
+      req.params.id,
+      { owner: newOwner._id },
+      { new: true }
+    ).populate("owner", "name email");
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Education listing not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Education author updated",
+      listing,
+      owner: listing.owner,
+    });
+  } catch (error: any) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
+    }
     return res.status(500).json({ success: false, message: error.message });
   }
 };

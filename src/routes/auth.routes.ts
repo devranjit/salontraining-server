@@ -11,7 +11,7 @@ import {
   unlockAccount,
   unlockWithOtp
 } from "../controllers/auth.controller";
-import { protect, adminOnly } from "../middleware/auth";
+import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import { updateProfile } from "../controllers/profile.controller";
 import { 
   getAllUsers, 
@@ -21,7 +21,8 @@ import {
   deleteUser, 
   changeUserRole,
   getUserStats,
-  updateUserStatus
+  updateUserStatus,
+  searchUsers,
 } from "../controllers/user.controller";
 
 const router = express.Router();
@@ -50,6 +51,7 @@ router.post("/update-profile", protect, updateProfile); // Also accept POST
 // Admin user management routes
 router.get("/users", protect, adminOnly, getAllUsers);
 router.get("/users/stats", protect, adminOnly, getUserStats);
+router.get("/users/search", protect, managerOrAdmin, searchUsers);
 router.get("/users/:id", protect, adminOnly, getUserById);
 router.post("/users", protect, adminOnly, createUser);
 router.put("/users/:id", protect, adminOnly, updateUser);

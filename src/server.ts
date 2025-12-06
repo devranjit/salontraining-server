@@ -21,6 +21,8 @@ import maintenanceRoutes from "./routes/maintenance.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import emailAdminRoutes from "./routes/emailAdmin.routes";
 import recycleBinRoutes from "./routes/recycleBin.routes";
+import analyticsRoutes from "./routes/analytics.routes";
+import membershipRoutes from "./routes/membership.routes";
 import { ensureEmailDefaults } from "./services/emailService";
 import "./lib/cloudinary";
 
@@ -50,7 +52,15 @@ async function initDB() {
 // -----------------------------------------
 const app = express();
 
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req: any, _res, buf) => {
+      if (req.originalUrl?.startsWith("/api/memberships/stripe/webhook")) {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 
 // -----------------------------------------
@@ -125,9 +135,11 @@ app.use("/api/blogs", blogRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/education", educationRoutes);
 app.use("/api/member-videos", memberVideoRoutes);
+app.use("/api/memberships", membershipRoutes);
 app.use("/api/system/maintenance", maintenanceRoutes);
 app.use("/api/admin/email", emailAdminRoutes);
 app.use("/api/admin/recycle-bin", recycleBinRoutes);
+app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
 

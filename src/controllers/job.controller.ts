@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Job } from "../models/Job";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { User } from "../models/User";
 
 // ===============================
 // PUBLIC — Get Jobs (with filters)
@@ -298,6 +299,49 @@ export const adminUpdateJob = async (req: Request, res: Response) => {
 
     return res.json({ success: true, job });
   } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Change Job Owner
+// ===============================
+export const adminChangeJobOwner = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const newOwner = await User.findById(userId).select("name email status");
+    if (!newOwner) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (newOwner.status === "blocked") {
+      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
+    }
+
+    const job = await Job.findByIdAndUpdate(
+      req.params.id,
+      { owner: newOwner._id },
+      { new: true }
+    ).populate("owner", "name email");
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Job author updated",
+      job,
+      owner: job.owner,
+    });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 };

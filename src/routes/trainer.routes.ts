@@ -22,6 +22,7 @@ import {
   getAllTrainers,
   getFeaturedTrainers,
   adminDeleteTrainer,
+  adminChangeTrainerOwner,
 } from "../controllers/trainer.controller";
 
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
@@ -83,6 +84,7 @@ router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestChang
 router.patch("/admin/:id/publish", protect, managerOrAdmin, publishTrainer);
 router.patch("/admin/:id/update", protect, managerOrAdmin, updateTrainerAdmin);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleFeatured);
+router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeTrainerOwner);
 router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteTrainer);
 router.get("/admin/:id", protect, managerOrAdmin, adminGetTrainerById);
 

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Blog } from "../models/Blog";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { User } from "../models/User";
 
 // ===============================
 // PUBLIC — Get All Blogs (Published)
@@ -330,6 +331,50 @@ export const adminUpdateBlog = async (req: Request, res: Response) => {
 
     return res.json({ success: true, blog });
   } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Change Blog Owner
+// ===============================
+export const adminChangeBlogOwner = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const newOwner = await User.findById(userId).select("name email status");
+    if (!newOwner) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (newOwner.status === "blocked") {
+      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
+    }
+
+    const blog = await Blog.findByIdAndUpdate(
+      req.params.id,
+      { owner: newOwner._id },
+      { new: true }
+    ).populate("owner", "name email");
+
+    if (!blog) {
+      return res.status(404).json({ success: false, message: "Blog not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Blog author updated",
+      blog,
+      owner: blog.owner,
+    });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 };

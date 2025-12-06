@@ -16,3 +16,8 @@ export const EmailTrigger = mongoose.model("EmailTrigger", emailTriggerSchema);
 export default EmailTrigger;
 
 
+
+
+
+
+

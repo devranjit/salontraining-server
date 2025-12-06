@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
 import mongoose from "mongoose";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { User } from "../models/User";
 
 const DISALLOWED_UPDATE_FIELDS = [
   "_id",
@@ -423,6 +424,49 @@ export const updateTrainerAdmin = async (req: Request, res: Response) => {
   }
 };
 
+// ===============================
+// ADMIN — Change Trainer Owner
+// ===============================
+export const adminChangeTrainerOwner = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "User ID is required" });
+    }
+
+    const newOwner = await User.findById(userId).select("name email status");
+    if (!newOwner) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (newOwner.status === "blocked") {
+      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
+    }
+
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { owner: newOwner._id },
+      { new: true }
+    ).populate("owner", "name email");
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Trainer not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Trainer owner updated",
+      listing,
+      owner: listing.owner,
+    });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 
 // ===============================
 // ADMIN — Toggle Featured
@@ -492,7 +536,8 @@ export const adminGetTrainerById = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
 
-    const listing = await TrainerListing.findById(id);
+    const listing = await TrainerListing.findById(id)
+      .populate("owner", "name email");
     if (!listing) {
       return res.status(404).json({
         success: false,
