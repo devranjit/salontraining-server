@@ -7,6 +7,8 @@ export interface IMembershipPlan extends Document {
   interval: "month" | "year";
   stripePriceId: string;
   stripeProductId?: string;
+  features: string[];
+  badge?: string;
   isActive: boolean;
 }
 
@@ -22,6 +24,8 @@ const MembershipPlanSchema = new Schema<IMembershipPlan>(
     },
     stripePriceId: { type: String, required: true },
     stripeProductId: { type: String },
+    features: { type: [String], default: [] },
+    badge: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

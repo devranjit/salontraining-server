@@ -34,9 +34,21 @@ export const getProducts = async (req: Request, res: Response) => {
       search,
       sort = "newest",
       featured,
+      productSource,  // Filter by product source: "store" or "listing"
     } = req.query;
 
-    const query: any = { status: { $in: ["approved", "published"] } };
+    // Filter by product source: "store" or "listing"
+    const sourceFilter = (productSource as string) || "listing";
+
+    const query: any = { 
+      status: { $in: ["approved", "published"] },
+    };
+
+    // For store: only show products explicitly marked as store
+    if (sourceFilter === "store") {
+      query.productSource = "store";
+    }
+    // For listing: handled below with owner filtering
 
     // Category filter
     if (category) {
@@ -87,10 +99,16 @@ export const getProducts = async (req: Request, res: Response) => {
 
     const skip = (Number(page) - 1) * Number(limit);
 
+    // If listing source requested, show products that are NOT store catalog products
+    if (sourceFilter === "listing") {
+      // Show products where productSource is "listing", undefined, or null (anything except "store")
+      query.productSource = { $ne: "store" };
+    }
+
     const [products, total] = await Promise.all([
       Product.find(query)
         .populate("category", "name")
-        .populate("owner", "name email")
+        .populate("owner", "name email role")
         .sort(sortOption)
         .skip(skip)
         .limit(Number(limit)),
@@ -115,12 +133,19 @@ export const getProducts = async (req: Request, res: Response) => {
 // GET FEATURED PRODUCTS
 export const getFeaturedProducts = async (req: Request, res: Response) => {
   try {
-    const { limit = 8 } = req.query;
+    const { limit = 8, productSource } = req.query;
 
-    const products = await Product.find({
+    const query: any = {
       status: "published",
       featured: true,
-    })
+    };
+
+    // Optionally filter by product source
+    if (productSource) {
+      query.productSource = productSource;
+    }
+
+    const products = await Product.find(query)
       .populate("category", "name")
       .sort({ createdAt: -1 })
       .limit(Number(limit));
@@ -176,6 +201,7 @@ export const getProductsBySeller = async (req: Request, res: Response) => {
     const products = await Product.find({
       owner: sellerId,
       status: "published",
+      productSource: "listing", // Only show user-submitted listings for seller pages
     })
       .populate("category", "name")
       .sort({ createdAt: -1 });
@@ -211,6 +237,7 @@ export const createUserProduct = async (req: any, res: Response) => {
       brand,
       weight,
       dimensions,
+      couponCode,
     } = req.body;
 
     if (!name || !price) {
@@ -236,11 +263,13 @@ export const createUserProduct = async (req: any, res: Response) => {
       downloadUrl,
       tags: tags || [],
       brand,
+      couponCode: couponCode?.trim() || undefined,
       weight,
       dimensions,
       owner: req.user.id,
       created_by: req.user.id,
       status: "pending", // User products need approval
+      productSource: "listing",  // User-submitted products are product listings
     });
 
     return res.json({
@@ -256,9 +285,12 @@ export const createUserProduct = async (req: any, res: Response) => {
 // GET MY PRODUCTS (User)
 export const getMyProducts = async (req: any, res: Response) => {
   try {
-    const { status, page = 1, limit = 10 } = req.query;
+    const { status, page = 1, limit = 10, productSource } = req.query;
 
-    const query: any = { owner: req.user.id };
+    // Default to listing products for user dashboard
+    const sourceFilter = (productSource as string) || "listing";
+
+    const query: any = { owner: req.user.id, productSource: sourceFilter };
     if (status) {
       query.status = status;
     }
@@ -356,10 +388,23 @@ export const deleteMyProduct = async (req: any, res: Response) => {
 // ============================================================
 export const getProductControlPanel = async (req: any, res: Response) => {
   try {
+    const { productSource } = req.query;
     const role = req.user?.role || "user";
     const isModerator = ["admin", "manager"].includes(role);
     const scope = isModerator ? "global" : "owner";
-    const baseFilter = isModerator ? {} : { owner: req.user?.id };
+    
+    // Build base filter
+    const baseFilter: any = isModerator ? {} : { owner: req.user?.id, productSource: "listing" };
+    
+    // For admins, filter by productSource if specified (store catalog vs user listings)
+    if (productSource && isModerator) {
+      baseFilter.productSource = productSource;
+    }
+
+    // For non-admins, ensure we never show store catalog products
+    if (!isModerator) {
+      baseFilter.productSource = "listing";
+    }
 
     const statusKeys: Array<"pending" | "approved" | "published" | "rejected" | "draft"> = [
       "pending",
@@ -456,6 +501,7 @@ export const importProduct = async (req: any, res: Response) => {
       owner: req.user.id,
       created_by: req.user.id,
       status: "pending",
+      productSource: "listing",  // Imported products are listings
     });
 
     return res.json({
@@ -517,6 +563,7 @@ export const bulkImportProducts = async (req: any, res: Response) => {
           owner: req.user.id,
           created_by: req.user.id,
           status: "pending",
+          productSource: "listing",  // Bulk imported products are listings
         });
 
         imported.push(product);
@@ -543,7 +590,7 @@ export const bulkImportProducts = async (req: any, res: Response) => {
 // GET ALL PRODUCTS (Admin)
 export const adminGetAllProducts = async (req: any, res: Response) => {
   try {
-    const { status, page = 1, limit = 20, search, owner } = req.query;
+    const { status, page = 1, limit = 20, search, owner, productSource } = req.query;
 
     const query: any = {};
 
@@ -553,6 +600,11 @@ export const adminGetAllProducts = async (req: any, res: Response) => {
 
     if (owner) {
       query.owner = owner;
+    }
+
+    // Filter by product source (store catalog vs user listings)
+    if (productSource) {
+      query.productSource = productSource;
     }
 
     if (search) {
@@ -620,25 +672,54 @@ export const createProduct = async (req: any, res: Response) => {
       sku,
       category,
       productType,
+      productStructure,
       stock,
       variations,
+      combinedVariations,
+      useCombinedVariations,
+      groupedProducts,
+      bundlePricingMode,
+      bundleDiscount,
       images,
       productFormat,
       downloadUrl,
+      downloadLimit,
+      downloadExpiry,
       tags,
       brand,
+      couponCode,
       weight,
       dimensions,
+      shippingClass,
       status,
       featured,
-      owner, // Admin can assign owner
+      owner,
+      manageStock,
+      backordersAllowed,
+      lowStockThreshold,
+      relatedProducts,
+      crossSellProducts,
+      purchaseNote,
+      minQuantity,
+      maxQuantity,
+      soldIndividually,
+      metaTitle,
+      metaDescription,
     } = req.body;
 
-    if (!name || !price) {
+    if (!name || price === undefined) {
       return res.status(400).json({
         success: false,
         message: "Name and price are required",
       });
+    }
+
+    // Determine product structure based on input
+    let finalProductStructure = productStructure || "simple";
+    if (groupedProducts && groupedProducts.length > 0) {
+      finalProductStructure = bundlePricingMode === "fixed" ? "bundle" : "grouped";
+    } else if ((variations && variations.length > 0) || (combinedVariations && combinedVariations.length > 0)) {
+      finalProductStructure = "variable";
     }
 
     const product = await Product.create({
@@ -650,20 +731,47 @@ export const createProduct = async (req: any, res: Response) => {
       sku,
       category,
       productType,
+      productStructure: finalProductStructure,
       stock: stock || 0,
       variations: variations || [],
+      combinedVariations: combinedVariations || [],
+      useCombinedVariations: useCombinedVariations || false,
+      groupedProducts: groupedProducts || [],
+      bundlePricingMode: bundlePricingMode || "fixed",
+      bundleDiscount: bundleDiscount || 0,
       images: images || [],
       productFormat,
       downloadUrl,
+      downloadLimit: downloadLimit ?? -1,
+      downloadExpiry: downloadExpiry ?? -1,
       tags: tags || [],
       brand,
+      couponCode: couponCode?.trim() || undefined,
       weight,
       dimensions,
+      shippingClass,
       owner: owner || req.user.id,
       created_by: req.user.id,
-      status: status || "published", // Admin products can be published directly
+      status: status || "published",
       featured: featured || false,
+      manageStock: manageStock ?? true,
+      backordersAllowed: backordersAllowed || false,
+      lowStockThreshold: lowStockThreshold || 5,
+      relatedProducts: relatedProducts || [],
+      crossSellProducts: crossSellProducts || [],
+      purchaseNote,
+      minQuantity: minQuantity || 1,
+      maxQuantity,
+      soldIndividually: soldIndividually || false,
+      metaTitle,
+      metaDescription,
+      productSource: "store",  // Admin-created products are store catalog products
     });
+
+    // Populate grouped products if any
+    if (finalProductStructure === "grouped" || finalProductStructure === "bundle") {
+      await product.populate("groupedProducts.product", "name slug price salePrice images stock");
+    }
 
     return res.json({ success: true, product });
   } catch (error: any) {
@@ -683,11 +791,25 @@ export const updateProduct = async (req: any, res: Response) => {
       });
     }
 
+    // Determine product structure based on update data
+    const updateData = { ...req.body };
+    
+    if (updateData.groupedProducts?.length > 0) {
+      updateData.productStructure = updateData.bundlePricingMode === "fixed" ? "bundle" : "grouped";
+    } else if (updateData.variations?.length > 0 || updateData.combinedVariations?.length > 0) {
+      updateData.productStructure = "variable";
+    } else if (updateData.productStructure === undefined) {
+      // Keep existing or default to simple
+      updateData.productStructure = product.productStructure || "simple";
+    }
+
     const updated = await Product.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true }
-    );
+    ).populate("groupedProducts.product", "name slug price salePrice images stock")
+     .populate("relatedProducts", "name slug price images")
+     .populate("crossSellProducts", "name slug price images");
 
     return res.json({
       success: true,
@@ -912,6 +1034,411 @@ export const toggleProductStatus = async (req: any, res: Response) => {
     return res.json({
       success: true,
       status: product.status,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
+// GROUPED/BUNDLE PRODUCT HELPERS
+// ============================================================
+
+// GET PRODUCT WITH FULL DETAILS (for grouped products)
+export const getProductWithGroupedDetails = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const product = await Product.findById(id)
+      .populate("category", "name")
+      .populate("owner", "name email")
+      .populate("groupedProducts.product", "name slug price salePrice images stock productFormat variations")
+      .populate("relatedProducts", "name slug price salePrice images")
+      .populate("crossSellProducts", "name slug price salePrice images");
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Calculate bundle total if grouped/bundle product
+    let bundleTotal = 0;
+    if ((product as any).productStructure === "grouped" || (product as any).productStructure === "bundle") {
+      const groupedProducts = (product as any).groupedProducts || [];
+      for (const item of groupedProducts) {
+        if (item.product) {
+          const itemPrice = item.product.salePrice || item.product.price;
+          const discount = item.discountPercent || 0;
+          const discountedPrice = itemPrice * (1 - discount / 100);
+          bundleTotal += discountedPrice * item.quantity;
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      product,
+      bundleCalculatedTotal: bundleTotal,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// SEARCH PRODUCTS FOR GROUPING (Admin)
+export const searchProductsForGrouping = async (req: any, res: Response) => {
+  try {
+    const { search, exclude } = req.query;
+    
+    const query: any = {
+      status: "published",
+      productStructure: { $in: ["simple", "variable"] }, // Can't nest grouped products
+    };
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { sku: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Exclude current product and already grouped products
+    if (exclude) {
+      const excludeIds = Array.isArray(exclude) ? exclude : [exclude];
+      query._id = { $nin: excludeIds };
+    }
+
+    const products = await Product.find(query)
+      .select("name slug price salePrice images stock sku productFormat")
+      .limit(20)
+      .sort({ name: 1 });
+
+    return res.json({ success: true, products });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// DUPLICATE PRODUCT (Admin)
+export const duplicateProduct = async (req: any, res: Response) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Create a copy of the product - exclude non-copiable fields
+    const productObj = product.toObject() as any;
+    const { _id, slug, createdAt, updatedAt, __v, ...productData } = productObj;
+    
+    const duplicateData: any = {
+      ...productData,
+      name: `${productData.name} (Copy)`,
+      status: "draft",
+      views: 0,
+      sales: 0,
+      averageRating: 0,
+      reviewCount: 0,
+      created_by: req.user.id,
+    };
+
+    // Generate new SKU if exists
+    if (duplicateData.sku) {
+      duplicateData.sku = `${duplicateData.sku}-COPY-${Date.now().toString(36)}`;
+    }
+
+    const duplicate = await Product.create(duplicateData);
+
+    return res.json({
+      success: true,
+      message: "Product duplicated successfully",
+      product: duplicate,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// BULK UPDATE STOCK (Admin)
+export const bulkUpdateStock = async (req: any, res: Response) => {
+  try {
+    const { updates } = req.body;
+    
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Updates array is required",
+      });
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const update of updates) {
+      try {
+        const { productId, stock, variationSku, combinationIndex } = update;
+        
+        if (!productId) {
+          errors.push({ productId, error: "Product ID required" });
+          continue;
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+          errors.push({ productId, error: "Product not found" });
+          continue;
+        }
+
+        // Update variation stock
+        if (variationSku) {
+          let updated = false;
+          for (const variation of (product as any).variations || []) {
+            for (const option of variation.options) {
+              if (option.sku === variationSku) {
+                option.stock = stock;
+                updated = true;
+                break;
+              }
+            }
+            if (updated) break;
+          }
+          if (!updated) {
+            errors.push({ productId, variationSku, error: "Variation SKU not found" });
+            continue;
+          }
+        } 
+        // Update combined variation stock
+        else if (combinationIndex !== undefined) {
+          const combinations = (product as any).combinedVariations || [];
+          if (combinations[combinationIndex]) {
+            combinations[combinationIndex].stock = stock;
+          } else {
+            errors.push({ productId, combinationIndex, error: "Combination not found" });
+            continue;
+          }
+        }
+        // Update main stock
+        else {
+          (product as any).stock = stock;
+        }
+
+        await product.save();
+        results.push({ productId, success: true });
+      } catch (err: any) {
+        errors.push({ productId: update.productId, error: err.message });
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Updated ${results.length} products`,
+      results,
+      errors,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET LOW STOCK PRODUCTS (Admin)
+export const getLowStockProducts = async (req: any, res: Response) => {
+  try {
+    const { threshold = 5, page = 1, limit = 20 } = req.query;
+    
+    const query: any = {
+      status: { $in: ["published", "approved"] },
+      productFormat: "physical",
+      manageStock: { $ne: false },
+      $or: [
+        { productStructure: "simple", stock: { $lte: Number(threshold) } },
+        { productStructure: { $ne: "simple" } }, // Check variations separately
+      ],
+    };
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const products = await Product.find(query)
+      .populate("owner", "name email")
+      .sort({ stock: 1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    // Filter variable products with low stock in variations
+    const filtered = products.filter((p: any) => {
+      if (p.productStructure === "simple") {
+        return p.stock <= Number(threshold);
+      }
+      
+      // Check variations
+      if (p.useCombinedVariations && p.combinedVariations?.length) {
+        return p.combinedVariations.some((cv: any) => cv.stock <= Number(threshold));
+      }
+      
+      if (p.variations?.length) {
+        return p.variations.some((v: any) => 
+          v.options.some((o: any) => o.stock <= Number(threshold))
+        );
+      }
+      
+      return false;
+    });
+
+    return res.json({
+      success: true,
+      products: filtered,
+      threshold: Number(threshold),
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ARCHIVE PRODUCT (Admin)
+export const archiveProduct = async (req: any, res: Response) => {
+  try {
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { status: "archived" },
+      { new: true }
+    );
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Product archived",
+      product,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// BULK STATUS UPDATE (Admin)
+export const bulkUpdateStatus = async (req: any, res: Response) => {
+  try {
+    const { productIds, status } = req.body;
+    
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Product IDs array is required",
+      });
+    }
+
+    const validStatuses = ["draft", "pending", "approved", "published", "rejected", "archived"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const result = await Product.updateMany(
+      { _id: { $in: productIds } },
+      { status }
+    );
+
+    return res.json({
+      success: true,
+      message: `Updated ${result.modifiedCount} products to ${status}`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
+// DEBUG & FIX PRODUCT SOURCE
+// ============================================================
+
+// GET PRODUCT SOURCE STATS (Admin) - Debug endpoint
+export const getProductSourceStats = async (req: any, res: Response) => {
+  try {
+    const stats = await Product.aggregate([
+      {
+        $group: {
+          _id: "$productSource",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const bySource: Record<string, number> = {};
+    stats.forEach((s) => {
+      bySource[s._id || "undefined"] = s.count;
+    });
+
+    // Also get products without productSource field
+    const withoutSource = await Product.countDocuments({
+      productSource: { $exists: false },
+    });
+
+    return res.json({
+      success: true,
+      stats: {
+        store: bySource["store"] || 0,
+        listing: bySource["listing"] || 0,
+        undefined: bySource["undefined"] || 0,
+        missingField: withoutSource,
+      },
+      total: await Product.countDocuments(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// FIX PRODUCT SOURCE (Admin) - Fixes products with incorrect/missing productSource
+export const fixProductSource = async (req: any, res: Response) => {
+  try {
+    // Find all products and determine correct productSource
+    const products = await Product.find({})
+      .populate("owner", "role")
+      .populate("created_by", "role");
+
+    let storeUpdated = 0;
+    let listingUpdated = 0;
+    const updates: string[] = [];
+
+    for (const product of products) {
+      const owner = product.owner as any;
+      const createdBy = product.created_by as any;
+      
+      // Determine correct productSource:
+      // - No owner OR created by admin/manager = store product
+      // - Has regular user owner = listing
+      let correctSource: "store" | "listing";
+      
+      if (!owner || (createdBy && ["admin", "manager"].includes(createdBy.role))) {
+        correctSource = "store";
+      } else {
+        correctSource = "listing";
+      }
+
+      // Update if different
+      if (product.productSource !== correctSource) {
+        await Product.updateOne(
+          { _id: product._id },
+          { $set: { productSource: correctSource } }
+        );
+        
+        updates.push(`${product.name}: ${product.productSource || "undefined"} → ${correctSource}`);
+        
+        if (correctSource === "store") storeUpdated++;
+        else listingUpdated++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Fixed ${storeUpdated + listingUpdated} products`,
+      storeUpdated,
+      listingUpdated,
+      updates,
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });

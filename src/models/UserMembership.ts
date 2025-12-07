@@ -3,7 +3,7 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IUserMembership extends Document {
   user: mongoose.Types.ObjectId;
   plan: mongoose.Types.ObjectId;
-  status: "active" | "expired" | "canceled" | "pending" | "past_due";
+  status: "active" | "expired" | "canceled" | "pending" | "past_due" | "hold";
   startDate?: Date;
   expiryDate?: Date;
   nextBillingDate?: Date;
@@ -21,7 +21,7 @@ const UserMembershipSchema = new Schema<IUserMembership>(
     plan: { type: Schema.Types.ObjectId, ref: "MembershipPlan", required: true },
     status: {
       type: String,
-      enum: ["active", "expired", "canceled", "pending", "past_due"],
+      enum: ["active", "expired", "canceled", "pending", "past_due", "hold"],
       default: "pending",
     },
     startDate: { type: Date },

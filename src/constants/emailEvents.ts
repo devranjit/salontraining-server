@@ -11,7 +11,8 @@ export type EmailEventKey =
   | "listing.updated"
   | "job.submitted"
   | "job.approved"
-  | "job.rejected";
+  | "job.rejected"
+  | "membership.activated";
 
 export type EmailEventConfig = {
   key: EmailEventKey;
@@ -165,6 +166,23 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
     defaultHtml: `
       <p>We were unable to approve <strong>{{job.title}}</strong>.</p>
       <p>Reason: {{job.reason}}</p>
+    `,
+  },
+  {
+    key: "membership.activated",
+    label: "Membership Activated",
+    description: "Sent to members when a membership becomes active or renews.",
+    defaultSubject: "Your SalonTraining membership is active",
+    defaultHtml: `
+      <h1 style="color:#0f172a;">You're all set, {{user.name}}!</h1>
+      <p style="color:#475569;">Your <strong>{{plan.name}}</strong> membership is now active.</p>
+      <ul style="color:#475569;line-height:1.6;">
+        <li>Plan: {{plan.name}}</li>
+        <li>Price: {{plan.price}} / {{plan.interval}}</li>
+        <li>Expires: {{membership.expiryDate}}</li>
+      </ul>
+      <p style="margin-top:16px;">{{membership.invoiceCta}}</p>
+      <p style="color:#94a3b8;font-size:13px;margin-top:24px;">Need help? Reply to this email.</p>
     `,
   },
 ];

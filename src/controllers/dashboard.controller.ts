@@ -7,6 +7,7 @@ import { Blog } from "../models/Blog";
 import { Job } from "../models/Job";
 import { Education } from "../models/Education";
 import MemberVideo from "../models/MemberVideo";
+import Review from "../models/Review";
 
 // ---------------------------------------------
 // ADMIN DASHBOARD STATS
@@ -76,7 +77,14 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
 
     // ===== RECENT ACTIVITY =====
     // Fetch recent items from various collections
-    const [recentTrainers, recentUsers, recentEvents, recentProducts, recentBlogs] = await Promise.all([
+    const [
+      recentTrainers,
+      recentUsers,
+      recentEvents,
+      recentProducts,
+      recentBlogs,
+      reviewStats,
+    ] = await Promise.all([
       TrainerListing.find()
         .sort({ createdAt: -1 })
         .limit(5)
@@ -102,6 +110,22 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
         .limit(3)
         .select("title status createdAt")
         .lean(),
+      (async () => {
+        const [totalReviews, pendingReviews, approvedReviews, changesRequested, rejectedReviews] = await Promise.all([
+          Review.countDocuments(),
+          Review.countDocuments({ status: "pending" }),
+          Review.countDocuments({ status: "approved" }),
+          Review.countDocuments({ status: "changes_requested" }),
+          Review.countDocuments({ status: "rejected" }),
+        ]);
+        return {
+          total: totalReviews,
+          pending: pendingReviews,
+          approved: approvedReviews,
+          changesRequested,
+          rejected: rejectedReviews,
+        };
+      })(),
     ]);
 
     // Combine and sort recent activity
@@ -150,7 +174,8 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
       }));
 
     // Total pending across all
-    const totalPending = pendingTrainers + pendingEvents + pendingProducts + pendingBlogs + pendingJobs + pendingEducation;
+    const totalPending =
+      pendingTrainers + pendingEvents + pendingProducts + pendingBlogs + pendingJobs + pendingEducation + reviewStats.pending;
 
     return res.json({
       success: true,
@@ -197,6 +222,7 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
           total: totalMemberVideos,
           published: publishedVideos,
         },
+        reviews: reviewStats,
         totalPending,
       },
       recentActivity,

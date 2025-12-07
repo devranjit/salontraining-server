@@ -5,6 +5,8 @@ import UserMembership from "../models/UserMembership";
 import MembershipLog, { MembershipLogType } from "../models/MembershipLog";
 import { User } from "../models/User";
 import { getStripeClient } from "../services/stripeClient";
+import { ensureStripePriceForPlan } from "../services/membershipStripe";
+import { dispatchEmailEvent } from "../services/emailService";
 
 const stripe = () => getStripeClient();
 
@@ -49,6 +51,110 @@ const logEvent = (payload: {
   data?: Record<string, any>;
 }) => MembershipLog.create(payload);
 
+const formatDateDisplay = (value?: Date | string | null) => {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const buildInvoiceCta = (invoiceUrl?: string, invoicePdf?: string) => {
+  if (invoiceUrl) {
+    const downloadLink = invoicePdf
+      ? `<span style="display:block;margin-top:8px;"><a href="${invoicePdf}" style="color:#d57a2c;">Download PDF invoice</a></span>`
+      : "";
+    return `<a href="${invoiceUrl}" style="background:#d57a2c;color:#fff;padding:12px 28px;border-radius:999px;text-decoration:none;font-weight:bold;">View invoice</a>${downloadLink}`;
+  }
+  if (invoicePdf) {
+    return `<a href="${invoicePdf}" style="color:#d57a2c;">Download PDF invoice</a>`;
+  }
+  return "";
+};
+
+const sendMembershipActivationEmail = async ({
+  membershipId,
+  invoiceUrl,
+  invoicePdf,
+  amountPaid,
+  currency,
+}: {
+  membershipId: string;
+  invoiceUrl?: string;
+  invoicePdf?: string;
+  amountPaid?: number;
+  currency?: string;
+}) => {
+  try {
+    const membership = await UserMembership.findById(membershipId)
+      .populate("user", "name email")
+      .populate("plan");
+
+    if (!membership || !membership.user || !membership.plan) return;
+
+    const userDoc: any = membership.user;
+    const planDoc: any = membership.plan;
+    const recipient = userDoc.email;
+    if (!recipient) return;
+
+    const normalizedCurrency = currency ? currency.toUpperCase() : undefined;
+    const amountFormatted =
+      typeof amountPaid === "number"
+        ? `${(amountPaid / 100).toFixed(2)}${normalizedCurrency ? ` ${normalizedCurrency}` : ""}`
+        : undefined;
+
+    await dispatchEmailEvent("membership.activated", {
+      to: recipient,
+      data: {
+        user: userDoc,
+        plan: planDoc,
+        membership: {
+          status: membership.status,
+          startDate: formatDateDisplay(membership.startDate),
+          expiryDate: formatDateDisplay(membership.expiryDate),
+          nextBillingDate: formatDateDisplay(membership.nextBillingDate),
+          invoiceUrl,
+          invoicePdf,
+          invoiceCta: buildInvoiceCta(invoiceUrl, invoicePdf),
+          amountPaid,
+          amountFormatted,
+          currency: normalizedCurrency,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("Failed to send membership activation email", err);
+  }
+};
+
+const getInvoiceDetails = async (invoiceInput: string | Stripe.Invoice | null | undefined) => {
+  if (!invoiceInput) {
+    return {};
+  }
+  try {
+    const invoice =
+      typeof invoiceInput === "string"
+        ? await stripe().invoices.retrieve(invoiceInput)
+        : invoiceInput;
+
+    return {
+      invoiceUrl: invoice.hosted_invoice_url || undefined,
+      invoicePdf: invoice.invoice_pdf || undefined,
+      amountPaid:
+        typeof invoice.amount_paid === "number"
+          ? invoice.amount_paid
+          : typeof invoice.amount_due === "number"
+          ? invoice.amount_due
+          : undefined,
+      currency: invoice.currency || undefined,
+    };
+  } catch (err) {
+    console.warn("Unable to retrieve invoice details", err);
+    return {};
+  }
+};
+
 const activateMembership = async ({
   userId,
   planId,
@@ -58,6 +164,10 @@ const activateMembership = async ({
   periodEnd,
   periodStart,
   autoRenew = true,
+  invoiceUrl,
+  invoicePdf,
+  amountPaid,
+  currency,
 }: {
   userId: string;
   planId: string;
@@ -67,6 +177,10 @@ const activateMembership = async ({
   periodEnd: Date;
   periodStart: Date;
   autoRenew?: boolean;
+  invoiceUrl?: string;
+  invoicePdf?: string;
+  amountPaid?: number;
+  currency?: string;
 }) => {
   const membership = await ensureMembership(userId, planId);
   membership.status = "active";
@@ -90,6 +204,14 @@ const activateMembership = async ({
       expiry: periodEnd,
       subscriptionId: stripeSubscriptionId,
     },
+  });
+
+  await sendMembershipActivationEmail({
+    membershipId: membership._id.toString(),
+    invoiceUrl,
+    invoicePdf,
+    amountPaid,
+    currency,
   });
 };
 
@@ -131,13 +253,28 @@ export const createCheckoutSession = async (req: any, res: Response) => {
       return res.status(404).json({ success: false, message: "Plan not found or inactive" });
     }
 
+    const { stripePriceId, stripeProductId } = await ensureStripePriceForPlan({
+      planId: plan._id.toString(),
+      name: plan.name,
+      price: plan.price,
+      interval: plan.interval,
+      stripePriceId: plan.stripePriceId,
+      stripeProductId: plan.stripeProductId,
+    });
+
+    if (plan.stripePriceId !== stripePriceId || plan.stripeProductId !== stripeProductId) {
+      plan.stripePriceId = stripePriceId;
+      plan.stripeProductId = stripeProductId;
+      await plan.save();
+    }
+
     const membership = await ensureMembership(req.user.id, planId);
     membership.plan = plan._id;
     await membership.save();
 
     const params: any = {
       mode: "subscription",
-      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+      line_items: [{ price: stripePriceId, quantity: 1 }],
       success_url: buildSuccessUrl(planId),
       cancel_url: buildCancelUrl(),
       metadata: {
@@ -204,25 +341,77 @@ export const adminUpdateMembership = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const membership = await UserMembership.findByIdAndUpdate(id, updates, { new: true });
+    const membership = await UserMembership.findById(id);
 
     if (!membership) {
       return res.status(404).json({ success: false, message: "Membership not found" });
     }
 
-    if (updates.status && ["expired", "canceled"].includes(updates.status)) {
-      await setUserRoleForMembership(membership.user.toString(), false);
+    const previousStatus = membership.status;
+    const userIdString = membership.user.toString();
+
+    if (updates.plan) {
+      membership.plan = updates.plan;
+    }
+
+    if (updates.status) {
+      membership.status = updates.status;
+      if (updates.status === "active") {
+        membership.cancelAtPeriodEnd = false;
+      } else if (["expired", "canceled", "hold"].includes(updates.status)) {
+        membership.autoRenew = false;
+        membership.cancelAtPeriodEnd = true;
+      }
+    }
+
+    if (updates.expiryDate) {
+      membership.expiryDate = new Date(updates.expiryDate);
+    }
+    if (updates.startDate) {
+      membership.startDate = new Date(updates.startDate);
+    }
+    if (updates.nextBillingDate) {
+      membership.nextBillingDate = new Date(updates.nextBillingDate);
+    }
+    if (typeof updates.autoRenew === "boolean") {
+      membership.autoRenew = updates.autoRenew;
+    }
+    if (typeof updates.cancelAtPeriodEnd === "boolean") {
+      membership.cancelAtPeriodEnd = updates.cancelAtPeriodEnd;
+    }
+    if (updates.metadata && typeof updates.metadata === "object") {
+      membership.metadata = { ...(membership.metadata || {}), ...updates.metadata };
+    }
+
+    await membership.save();
+
+    const populated = await UserMembership.findById(membership._id)
+      .populate("user", "name email role")
+      .populate("plan");
+
+    if (!populated) {
+      return res.status(500).json({ success: false, message: "Unable to load membership" });
+    }
+
+    if (populated.status === "active") {
+      await setUserRoleForMembership(userIdString, true);
+    } else {
+      await setUserRoleForMembership(userIdString, false);
+    }
+
+    if (previousStatus !== "active" && populated.status === "active") {
+      await sendMembershipActivationEmail({ membershipId: populated._id.toString() });
     }
 
     await logEvent({
-      user: membership.user as any,
-      plan: membership.plan as any,
+      user: populated.user as any,
+      plan: populated.plan as any,
       type: "status_change",
       message: "Membership updated by admin",
       data: updates,
     });
 
-    return res.json({ success: true, membership });
+    return res.json({ success: true, membership: populated });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -238,22 +427,44 @@ export const adminExtendMembership = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: "Membership not found" });
     }
 
+    const previousStatus = membership.status;
+    const userIdString = membership.user.toString();
+
+    const daysToAdd = Number(extraDays);
+    if (Number.isNaN(daysToAdd) || daysToAdd <= 0) {
+      return res.status(400).json({ success: false, message: "extraDays must be a positive number" });
+    }
+
     const newExpiry = new Date(membership.expiryDate || new Date());
-    newExpiry.setDate(newExpiry.getDate() + Number(extraDays));
+    newExpiry.setDate(newExpiry.getDate() + daysToAdd);
     membership.expiryDate = newExpiry;
     membership.status = "active";
     membership.autoRenew = false;
     membership.cancelAtPeriodEnd = true;
     await membership.save();
 
+    const populated = await UserMembership.findById(membership._id)
+      .populate("user", "name email role")
+      .populate("plan");
+
+    if (!populated) {
+      return res.status(500).json({ success: false, message: "Unable to load membership" });
+    }
+
+    await setUserRoleForMembership(userIdString, true);
+
+    if (previousStatus !== "active") {
+      await sendMembershipActivationEmail({ membershipId: populated._id.toString() });
+    }
+
     await logEvent({
-      user: membership.user as any,
-      plan: membership.plan as any,
+      user: populated.user as any,
+      plan: populated.plan as any,
       type: "status_change",
-      message: `Membership manually extended by ${extraDays} days`,
+      message: `Membership manually extended by ${daysToAdd} days`,
     });
 
-    return res.json({ success: true, membership });
+    return res.json({ success: true, membership: populated });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -288,6 +499,7 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
               ? session.subscription
               : session.subscription.id;
           const subscription = await stripe().subscriptions.retrieve(subscriptionId);
+          const invoiceDetails = await getInvoiceDetails(session.invoice);
           const metadata = session.metadata || {};
           await activateMembership({
             userId: metadata.userId,
@@ -298,6 +510,10 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
             periodStart: new Date(subscription.current_period_start * 1000),
             periodEnd: new Date(subscription.current_period_end * 1000),
             autoRenew: !subscription.cancel_at_period_end,
+            invoiceUrl: invoiceDetails.invoiceUrl,
+            invoicePdf: invoiceDetails.invoicePdf,
+            amountPaid: invoiceDetails.amountPaid,
+            currency: invoiceDetails.currency,
           });
         }
         break;
@@ -321,6 +537,15 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
               periodStart: new Date(subscription.current_period_start * 1000),
               periodEnd: new Date(subscription.current_period_end * 1000),
               autoRenew: !subscription.cancel_at_period_end,
+              invoiceUrl: invoice.hosted_invoice_url || undefined,
+              invoicePdf: invoice.invoice_pdf || undefined,
+              amountPaid:
+                typeof invoice.amount_paid === "number"
+                  ? invoice.amount_paid
+                  : typeof invoice.amount_due === "number"
+                  ? invoice.amount_due
+                  : undefined,
+              currency: invoice.currency || undefined,
             });
           }
         }
@@ -344,6 +569,22 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
   }
 
   res.json({ received: true });
+};
+
+export const getStripeConfig = (_req: Request, res: Response) => {
+  const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
+
+  if (!publishableKey) {
+    return res.status(500).json({
+      success: false,
+      message: "Stripe publishable key (STRIPE_PUBLISHABLE_KEY) is not configured.",
+    });
+  }
+
+  return res.json({
+    success: true,
+    publishableKey,
+  });
 };
 
 

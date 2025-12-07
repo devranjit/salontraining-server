@@ -5,6 +5,9 @@ import { User } from "../models/User";
 import { TrainerListing } from "../models/TrainerListing";
 import MemberVideo from "../models/MemberVideo";
 import Product from "../models/Product";
+import Order from "../models/Order";
+import ShippingMethod from "../models/ShippingMethod";
+import ShippingZone from "../models/ShippingZone";
 import { Event } from "../models/Event";
 import { Blog } from "../models/Blog";
 import { Job } from "../models/Job";
@@ -351,6 +354,10 @@ async function runActiveApiSweep(): Promise<ModuleTaskResult> {
     { name: "Trainer listings", fn: () => TrainerListing.find().limit(1).lean() },
     { name: "Events", fn: () => Event.find().limit(1).lean() },
     { name: "Products", fn: () => Product.find().limit(1).lean() },
+    { name: "Orders", fn: () => Order.find().limit(1).lean() },
+    { name: "Shipping methods", fn: () => ShippingMethod.find().limit(1).lean() },
+    { name: "Shipping zones", fn: () => ShippingZone.find().limit(1).lean() },
+    { name: "Orders", fn: () => Order.find().limit(1).lean() },
     { name: "Blogs", fn: () => Blog.find().limit(1).lean() },
     { name: "Jobs", fn: () => Job.find().limit(1).lean() },
     { name: "Education", fn: () => Education.find().limit(1).lean() },
