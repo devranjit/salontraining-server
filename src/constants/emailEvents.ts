@@ -1,8 +1,11 @@
 export type EmailEventKey =
   | "auth.otp"
+  | "auth.registration-otp"
   | "auth.registered"
   | "auth.login"
   | "auth.password-reset"
+  | "auth.registration-locked"
+  | "auth.account-unlocked"
   | "admin.recycle-bin-warning"
   | "listing.submitted"
   | "listing.approved"
@@ -36,6 +39,50 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
         {{otp}}
       </div>
       <p style="color:#777;font-size:12px;margin-top:24px;">This code expires in 5 minutes.</p>
+    `,
+  },
+  {
+    key: "auth.registration-otp",
+    label: "Registration Verification OTP",
+    description: "Sent when a new user registers to verify their email address.",
+    defaultSubject: "Verify your email to complete registration",
+    defaultHtml: `
+      <h1 style="color:#d57a2c;margin-bottom:16px;">Verify Your Email</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Thank you for registering with SalonTraining! Please enter the verification code below to complete your registration:</p>
+      <div style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#fff;background:#d57a2c;padding:12px 24px;border-radius:12px;text-align:center;margin:24px 0;">
+        {{otp}}
+      </div>
+      <p style="color:#777;font-size:12px;">This code expires in 5 minutes.</p>
+      <p style="color:#777;font-size:12px;margin-top:16px;">If you did not create an account, please ignore this email.</p>
+    `,
+  },
+  {
+    key: "auth.registration-locked",
+    label: "Registration Locked",
+    description: "Sent when a user's registration is locked due to too many failed verification attempts.",
+    defaultSubject: "Your SalonTraining registration has been locked",
+    defaultHtml: `
+      <h1 style="color:#dc2626;margin-bottom:16px;">Registration Locked</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Your registration attempt has been locked due to too many failed verification attempts.</p>
+      <p style="color:#555;">If you believe this was a mistake, please contact our support team to unlock your registration.</p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">Contact support at support@salontraining.com</p>
+    `,
+  },
+  {
+    key: "auth.account-unlocked",
+    label: "Account Unlocked",
+    description: "Sent when an admin unlocks a locked user account.",
+    defaultSubject: "Your SalonTraining account has been unlocked",
+    defaultHtml: `
+      <h1 style="color:#16a34a;margin-bottom:16px;">Account Unlocked</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Good news! Your SalonTraining account has been unlocked by our support team.</p>
+      <p style="color:#555;">You can now register again or log in to your account.</p>
+      <p style="text-align:center;margin-top:24px;">
+        <a href="{{app.url}}/register" style="background:#d57a2c;color:#fff;text-decoration:none;padding:12px 32px;border-radius:999px;font-weight:bold;">Register Now</a>
+      </p>
     `,
   },
   {

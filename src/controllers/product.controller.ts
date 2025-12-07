@@ -305,6 +305,27 @@ export const getMyProducts = async (req: any, res: Response) => {
   }
 };
 
+// GET SINGLE MY PRODUCT BY ID (User)
+export const getMyProductById = async (req: any, res: Response) => {
+  try {
+    const product = await Product.findOne({
+      _id: req.params.id,
+      owner: req.user.id,
+    }).populate("category", "name");
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found or unauthorized",
+      });
+    }
+
+    return res.json({ success: true, product });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // UPDATE MY PRODUCT LISTING (User) - Simplified for listings
 export const updateMyProduct = async (req: any, res: Response) => {
   try {

@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 import {
   getEvents,
   getFeaturedEvents,
   getSingleEvent,
   createEvent,
   getMyEvents,
+  getMyEventById,
   updateMyEvent,
   deleteMyEvent,
   adminGetAllEvents,
@@ -40,10 +42,13 @@ router.get("/:id", getSingleEvent);
    USER ROUTES (Authenticated)
 -------------------------------------------- */
 // Create new event/show
-router.post("/", protect, createEvent);
+router.post("/", protect, recaptchaMiddleware("submit_event"), createEvent);
 
 // Get user's own events
 router.get("/my/list", protect, getMyEvents);
+
+// Get single user's own event
+router.get("/my/:id", protect, getMyEventById);
 
 // Update user's own event
 router.put("/my/:id", protect, updateMyEvent);

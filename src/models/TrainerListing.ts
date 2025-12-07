@@ -10,7 +10,7 @@ const trainerListingSchema = new mongoose.Schema(
 
     // Basic Info
     title: { type: String, required: true },
-    description: { type: String, required: true },
+    description: { type: String, default: "" },
 
     // Contact
     email: { type: String, required: true },

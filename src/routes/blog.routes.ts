@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 
 import {
   // Public
@@ -33,7 +34,7 @@ router.get("/", getBlogs);
 router.get("/featured", getFeaturedBlogs);
 
 /* ---------------------- USER ROUTES ---------------------- */
-router.post("/", protect, createBlog);
+router.post("/", protect, recaptchaMiddleware("submit_blog"), createBlog);
 router.get("/my", protect, getMyBlogs);
 router.put("/my/:id", protect, updateMyBlog);
 router.delete("/my/:id", protect, deleteMyBlog);

@@ -9,7 +9,9 @@ import {
   resetPassword,
   resetPasswordWithOtp,
   unlockAccount,
-  unlockWithOtp
+  unlockWithOtp,
+  verifyRegistrationOtp,
+  resendRegistrationOtp
 } from "../controllers/auth.controller";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import { updateProfile } from "../controllers/profile.controller";
@@ -23,12 +25,16 @@ import {
   getUserStats,
   updateUserStatus,
   searchUsers,
+  getLockedUsers,
+  unlockLockedUser,
 } from "../controllers/user.controller";
 
 const router = express.Router();
 
 // Public routes
 router.post("/register", registerUser);
+router.post("/verify-registration", verifyRegistrationOtp);
+router.post("/resend-registration-otp", resendRegistrationOtp);
 router.post("/login", loginUser);
 
 // OTP routes
@@ -59,5 +65,9 @@ router.delete("/users/:id", protect, adminOnly, deleteUser);
 router.patch("/users/:id/role", protect, adminOnly, changeUserRole);
 router.patch("/users/:id/status", protect, adminOnly, updateUserStatus);
 router.post("/users/unlock", protect, adminOnly, unlockAccount); // Admin unlock
+
+// Locked users management (Admin)
+router.get("/users/locked", protect, adminOnly, getLockedUsers);
+router.post("/users/locked/:id/unlock", protect, adminOnly, unlockLockedUser);
 
 export default router;

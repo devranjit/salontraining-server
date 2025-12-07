@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 import {
   getEducationListings,
   getFeaturedEducation,
   getSingleEducation,
   createEducation,
   getMyEducationListings,
+  getMyEducationById,
   updateMyEducation,
   deleteMyEducation,
   adminGetAllEducation,
@@ -29,8 +31,9 @@ router.get("/", getEducationListings);
 router.get("/featured", getFeaturedEducation);
 
 /* ---------------------- USER ROUTES ---------------------- */
-router.post("/", protect, createEducation);
+router.post("/", protect, recaptchaMiddleware("submit_education"), createEducation);
 router.get("/my", protect, getMyEducationListings);
+router.get("/my/:id", protect, getMyEducationById);
 router.put("/my/:id", protect, updateMyEducation);
 router.delete("/my/:id", protect, deleteMyEducation);
 

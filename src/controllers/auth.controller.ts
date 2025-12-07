@@ -2,13 +2,16 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
+import PendingRegistration from "../models/PendingRegistration";
 import { Request, Response } from "express";
 import { dispatchEmailEvent } from "../services/emailService";
 
 // Security constants
 const MAX_LOGIN_ATTEMPTS = 5;
+const MAX_REGISTRATION_ATTEMPTS = 3;
 const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
+const REGISTRATION_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours for pending registration
 const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
 const FRONTEND_BASE_URL = (
   process.env.FRONTEND_URL ||
@@ -33,7 +36,7 @@ const isLocked = (user: any) => {
 };
 
 // ------------------------------------------------------
-// REGISTER USER
+// REGISTER USER (Step 1: Initiate registration with OTP)
 // ------------------------------------------------------
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -49,6 +52,8 @@ export const registerUser = async (req: Request, res: Response) => {
       state,
       city,
     } = req.body;
+
+    const normalizedEmail = email?.toLowerCase();
 
     // Basic validation
     if (!name || !email || !password) {
@@ -66,40 +71,266 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
 
-    const exist = await User.findOne({ email: email.toLowerCase() });
-    if (exist) return res.status(400).json({ message: "Email already exists" });
+    // Check if email already exists as a registered user
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered. Please login instead." });
+    }
 
-    const hashed = await bcrypt.hash(password, 12); // Increased rounds for security
-
-    const user = await User.create({
-      name,
-      email: email.toLowerCase(),
-      password: hashed,
-      phone,
-      business,
-      category,
-      portfolio,
-      country,
-      state,
-      city,
+    // Check for existing locked pending registration
+    const lockedPending = await PendingRegistration.findOne({ 
+      email: normalizedEmail, 
+      isLocked: true 
     });
+    if (lockedPending) {
+      return res.status(423).json({ 
+        message: "This email has been locked due to too many failed verification attempts. Please contact support.",
+        locked: true,
+        email: normalizedEmail
+      });
+    }
+
+    // Hash password
+    const hashed = await bcrypt.hash(password, 12);
+
+    // Generate OTP
+    const otp = generateOtp();
+    const otpExpires = new Date(Date.now() + OTP_EXPIRY);
+    const expiresAt = new Date(Date.now() + REGISTRATION_EXPIRY);
+
+    // Create or update pending registration
+    const pendingData = {
+      name,
+      email: normalizedEmail,
+      password: hashed,
+      phone: phone || "",
+      business: business || "",
+      category: category || "",
+      portfolio: portfolio || "",
+      country: country || "",
+      state: state || "",
+      city: city || "",
+      otp,
+      otpExpires,
+      expiresAt,
+      verificationAttempts: 0,
+      isLocked: false,
+    };
+
+    await PendingRegistration.findOneAndUpdate(
+      { email: normalizedEmail },
+      pendingData,
+      { upsert: true, new: true }
+    );
+
+    // Send verification email
+    try {
+      await dispatchEmailEvent("auth.registration-otp", {
+        to: normalizedEmail,
+        data: {
+          user: {
+            name: name,
+            email: normalizedEmail,
+          },
+          otp,
+        },
+      });
+    } catch (emailError) {
+      console.error("Failed to send registration OTP email:", emailError);
+      return res.status(500).json({
+        message: "Unable to send verification email. Please try again later.",
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      requiresVerification: true,
+      email: normalizedEmail,
+      message: "Verification code sent to your email. Please check your inbox.",
+      expiresIn: OTP_EXPIRY / 1000
+    });
+  } catch (err) {
+    console.error("Registration error:", err);
+    return res.status(500).json({ message: "Registration failed" });
+  }
+};
+
+// ------------------------------------------------------
+// VERIFY REGISTRATION OTP (Step 2: Complete registration)
+// ------------------------------------------------------
+export const verifyRegistrationOtp = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and verification code are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    // Find pending registration
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+    
+    if (!pending) {
+      return res.status(404).json({ message: "No pending registration found. Please register again." });
+    }
+
+    // Check if locked
+    if (pending.isLocked) {
+      return res.status(423).json({ 
+        message: "This registration has been locked due to too many failed attempts. Please contact support.",
+        locked: true
+      });
+    }
+
+    // Check if OTP expired
+    if (!pending.otp || !pending.otpExpires || Date.now() > new Date(pending.otpExpires).getTime()) {
+      return res.status(400).json({ 
+        message: "Verification code expired. Please request a new one.",
+        expired: true
+      });
+    }
+
+    // Verify OTP
+    if (pending.otp !== otp) {
+      // Increment verification attempts
+      pending.verificationAttempts = (pending.verificationAttempts || 0) + 1;
+      
+      // Check if max attempts reached
+      if (pending.verificationAttempts >= MAX_REGISTRATION_ATTEMPTS) {
+        pending.isLocked = true;
+        pending.lockedAt = new Date();
+        pending.lockReason = "Too many failed verification attempts";
+        await pending.save();
+
+        // Send lock notification email
+        dispatchEmailEvent("auth.registration-locked", {
+          to: normalizedEmail,
+          data: {
+            user: {
+              name: pending.name,
+              email: normalizedEmail,
+            },
+          },
+        }).catch((err) => console.error("Failed to send lock notification:", err));
+
+        return res.status(423).json({ 
+          message: "Too many failed attempts. Your registration has been locked. Please contact support.",
+          locked: true
+        });
+      }
+
+      await pending.save();
+      const remaining = MAX_REGISTRATION_ATTEMPTS - pending.verificationAttempts;
+      return res.status(400).json({ 
+        message: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+        attemptsRemaining: remaining
+      });
+    }
+
+    // OTP verified - create the actual user
+    const user = await User.create({
+      name: pending.name,
+      email: normalizedEmail,
+      password: pending.password, // Already hashed
+      phone: pending.phone,
+      business: pending.business,
+      category: pending.category,
+      portfolio: pending.portfolio,
+      country: pending.country,
+      state: pending.state,
+      city: pending.city,
+    });
+
+    // Delete pending registration
+    await PendingRegistration.deleteOne({ email: normalizedEmail });
 
     const safeUser = { ...user.toObject(), password: undefined };
 
+    // Send welcome email
     dispatchEmailEvent("auth.registered", {
-      to: safeUser.email,
+      to: normalizedEmail,
       data: {
         user: {
           name: safeUser.name || safeUser.email,
           email: safeUser.email,
         },
       },
-    }).catch((err) => console.error("register email failed:", err));
+    }).catch((err) => console.error("Welcome email failed:", err));
 
-    return res.json({ success: true, user: safeUser });
+    return res.json({ 
+      success: true, 
+      verified: true,
+      message: "Email verified successfully! You can now log in.",
+      user: safeUser 
+    });
   } catch (err) {
-    console.error("Registration error:", err);
-    return res.status(500).json({ message: "Registration failed" });
+    console.error("Verify registration OTP error:", err);
+    return res.status(500).json({ message: "Verification failed" });
+  }
+};
+
+// ------------------------------------------------------
+// RESEND REGISTRATION OTP
+// ------------------------------------------------------
+export const resendRegistrationOtp = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    // Find pending registration
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+    
+    if (!pending) {
+      return res.status(404).json({ message: "No pending registration found. Please register again." });
+    }
+
+    // Check if locked
+    if (pending.isLocked) {
+      return res.status(423).json({ 
+        message: "This registration has been locked. Please contact support.",
+        locked: true
+      });
+    }
+
+    // Generate new OTP
+    const otp = generateOtp();
+    pending.otp = otp;
+    pending.otpExpires = new Date(Date.now() + OTP_EXPIRY);
+    await pending.save();
+
+    // Send verification email
+    try {
+      await dispatchEmailEvent("auth.registration-otp", {
+        to: normalizedEmail,
+        data: {
+          user: {
+            name: pending.name,
+            email: normalizedEmail,
+          },
+          otp,
+        },
+      });
+    } catch (emailError) {
+      console.error("Failed to resend registration OTP email:", emailError);
+      return res.status(500).json({
+        message: "Unable to send verification email. Please try again later.",
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: "New verification code sent to your email.",
+      expiresIn: OTP_EXPIRY / 1000
+    });
+  } catch (err) {
+    console.error("Resend registration OTP error:", err);
+    return res.status(500).json({ message: "Failed to resend verification code" });
   }
 };
 

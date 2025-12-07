@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 import multer from "multer";
 import { TrainerListing } from "../models/TrainerListing";
 
@@ -34,7 +35,7 @@ router.get("/my", protect, getMyTrainers);
 router.get("/my/:id", protect, getMyTrainerDetail);
 router.patch("/my/:id", protect, requestTrainerUpdate);
 router.post("/my/:id/delete-request", protect, requestTrainerDelete);
-router.post("/", protect, createTrainer);
+router.post("/", protect, recaptchaMiddleware("submit_trainer"), createTrainer);
 
 
 /* ---------------------- MULTER MEMORY STORAGE ---------------------- */

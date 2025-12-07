@@ -8,6 +8,7 @@ import {
   // User (Seller)
   createUserProduct,
   getMyProducts,
+  getMyProductById,
   updateMyProduct,
   deleteMyProduct,
   importProduct,
@@ -39,6 +40,7 @@ import {
   fixProductSource,
 } from "../controllers/product.controller";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 
 const router = Router();
 
@@ -53,8 +55,9 @@ router.get("/:id", getSingleProduct);
 /* ===========================================
    USER (SELLER) ROUTES - Requires Auth
 ============================================ */
-router.post("/my", protect, createUserProduct);
+router.post("/my", protect, recaptchaMiddleware("submit_product"), createUserProduct);
 router.get("/my/list", protect, getMyProducts);
+router.get("/my/:id", protect, getMyProductById);
 router.get("/control-panel", protect, getProductControlPanel);
 router.put("/my/:id", protect, updateMyProduct);
 router.delete("/my/:id", protect, deleteMyProduct);

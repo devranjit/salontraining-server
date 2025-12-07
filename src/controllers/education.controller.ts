@@ -285,6 +285,29 @@ export const getMyEducationListings = async (req: any, res: Response) => {
 };
 
 // ===============================
+// USER — Get Single My Education by ID
+// ===============================
+export const getMyEducationById = async (req: any, res: Response) => {
+  try {
+    const listing = await Education.findOne({
+      _id: req.params.id,
+      owner: req.user._id,
+    });
+
+    if (!listing) {
+      return res.status(404).json({
+        success: false,
+        message: "Education listing not found or unauthorized",
+      });
+    }
+
+    return res.json({ success: true, listing });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ===============================
 // USER — Update My Education Listing
 // ===============================
 export const updateMyEducation = async (req: any, res: Response) => {

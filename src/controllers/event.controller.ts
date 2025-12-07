@@ -268,6 +268,29 @@ export const getMyEvents = async (req: any, res: Response) => {
 };
 
 // ===============================
+// USER — Get Single My Event by ID
+// ===============================
+export const getMyEventById = async (req: any, res: Response) => {
+  try {
+    const event = await Event.findOne({
+      _id: req.params.id,
+      owner: req.user.id,
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found or unauthorized",
+      });
+    }
+
+    return res.json({ success: true, event });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
 // USER — Update My Event
 // ===============================
 export const updateMyEvent = async (req: any, res: Response) => {

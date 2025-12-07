@@ -104,3 +104,4 @@ couponSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
 const Coupon = mongoose.model("Coupon", couponSchema);
 export default Coupon;
 
+

@@ -13,9 +13,13 @@ const userSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["active", "blocked"],
+      enum: ["active", "blocked", "registration_locked"],
       default: "active",
     },
+
+    // Registration lock tracking (for users locked due to failed registration verification)
+    registrationLockedAt: { type: Date, default: null },
+    registrationLockReason: { type: String, default: null },
 
     first_name: String,
     last_name: String,

@@ -174,6 +174,29 @@ export const getMyJobs = async (req: Request, res: Response) => {
 };
 
 // ===============================
+// USER — Get Single My Job by ID
+// ===============================
+export const getMyJobById = async (req: Request, res: Response) => {
+  try {
+    const job = await Job.findOne({
+      _id: req.params.id,
+      owner: (req as any).user._id,
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found or unauthorized",
+      });
+    }
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
 // USER — Update My Job
 // ===============================
 export const updateMyJob = async (req: Request, res: Response) => {

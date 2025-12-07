@@ -3,10 +3,12 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import User from "../models/User";
+import PendingRegistration from "../models/PendingRegistration";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { dispatchEmailEvent } from "../services/emailService";
 
 const ALLOWED_ROLES = ["user", "member", "st-member", "manager", "admin"];
-const ALLOWED_STATUSES = ["active", "blocked"];
+const ALLOWED_STATUSES = ["active", "blocked", "registration_locked"];
 
 const sanitizeUser = (user: any) => {
   const obj = user.toObject ? user.toObject() : user;
@@ -356,6 +358,10 @@ export const getUserStats = async (req: Request, res: Response) => {
     const memberUsers = await User.countDocuments({ role: { $in: ["member", "st-member"] } });
     const blockedUsers = await User.countDocuments({ status: "blocked" });
     const activeUsers = await User.countDocuments({ status: "active" });
+    const registrationLockedUsers = await User.countDocuments({ status: "registration_locked" });
+    
+    // Count locked pending registrations
+    const lockedPendingRegistrations = await PendingRegistration.countDocuments({ isLocked: true });
     
     // Users registered in last 30 days
     const thirtyDaysAgo = new Date();
@@ -375,10 +381,135 @@ export const getUserStats = async (req: Request, res: Response) => {
         stMembers,
         active: activeUsers,
         blocked: blockedUsers,
+        registrationLocked: registrationLockedUsers,
+        lockedPendingRegistrations,
         newThisMonth: newUsers,
       },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// GET LOCKED USERS (Admin) - Both locked pending registrations and registration_locked users
+// ------------------------------------------------------
+export const getLockedUsers = async (req: Request, res: Response) => {
+  try {
+    // Get locked pending registrations
+    const lockedPendingRegistrations = await PendingRegistration.find({ isLocked: true })
+      .select("-password -otp")
+      .sort({ lockedAt: -1 });
+
+    // Get users with registration_locked status
+    const registrationLockedUsers = await User.find({ status: "registration_locked" })
+      .select("-password -otp -otpExpires")
+      .sort({ registrationLockedAt: -1 });
+
+    // Combine both into a unified list
+    const lockedItems = [
+      ...lockedPendingRegistrations.map((pr: any) => ({
+        _id: pr._id,
+        type: "pending_registration",
+        name: pr.name,
+        email: pr.email,
+        lockedAt: pr.lockedAt,
+        lockReason: pr.lockReason || "Too many failed verification attempts",
+        verificationAttempts: pr.verificationAttempts,
+        createdAt: pr.createdAt,
+      })),
+      ...registrationLockedUsers.map((u: any) => ({
+        _id: u._id,
+        type: "user",
+        name: u.name,
+        email: u.email,
+        lockedAt: u.registrationLockedAt,
+        lockReason: u.registrationLockReason || "Registration locked",
+        createdAt: u.createdAt,
+      })),
+    ];
+
+    // Sort by lockedAt descending
+    lockedItems.sort((a, b) => {
+      const dateA = a.lockedAt ? new Date(a.lockedAt).getTime() : 0;
+      const dateB = b.lockedAt ? new Date(b.lockedAt).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    res.json({
+      success: true,
+      lockedUsers: lockedItems,
+      count: lockedItems.length,
+    });
+  } catch (error: any) {
+    console.error("Get locked users error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// UNLOCK USER/PENDING REGISTRATION (Admin)
+// ------------------------------------------------------
+export const unlockLockedUser = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.body; // "pending_registration" or "user"
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: "ID is required" });
+    }
+
+    let email = "";
+    let name = "";
+
+    if (type === "pending_registration") {
+      // Unlock pending registration - just delete it so user can register again
+      const pending = await PendingRegistration.findById(id);
+      if (!pending) {
+        return res.status(404).json({ success: false, message: "Pending registration not found" });
+      }
+
+      email = pending.email;
+      name = pending.name;
+
+      // Delete the locked pending registration
+      await PendingRegistration.findByIdAndDelete(id);
+    } else {
+      // Unlock user with registration_locked status
+      const user = await User.findById(id);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      email = user.email;
+      name = user.name || user.email;
+
+      // Update user status to active
+      user.status = "active";
+      (user as any).registrationLockedAt = null;
+      (user as any).registrationLockReason = null;
+      await user.save();
+    }
+
+    // Send unlock notification email
+    dispatchEmailEvent("auth.account-unlocked", {
+      to: email,
+      data: {
+        user: {
+          name,
+          email,
+        },
+      },
+    }).catch((err) => console.error("Failed to send unlock notification:", err));
+
+    res.json({
+      success: true,
+      message: type === "pending_registration" 
+        ? "Pending registration unlocked. User can now register again."
+        : "User account unlocked successfully.",
+    });
+  } catch (error: any) {
+    console.error("Unlock user error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error" });
   }
 };

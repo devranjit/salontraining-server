@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { recaptchaMiddleware } from "../middleware/recaptcha";
 
 import {
   // Public
@@ -9,6 +10,7 @@ import {
   // User
   createJob,
   getMyJobs,
+  getMyJobById,
   updateMyJob,
   deleteMyJob,
   // Admin
@@ -34,8 +36,9 @@ router.get("/", getJobs);
 router.get("/featured", getFeaturedJobs);
 
 /* ---------------------- USER ROUTES ---------------------- */
-router.post("/", protect, createJob);
+router.post("/", protect, recaptchaMiddleware("submit_job"), createJob);
 router.get("/my", protect, getMyJobs);
+router.get("/my/:id", protect, getMyJobById);
 router.put("/my/:id", protect, updateMyJob);
 router.delete("/my/:id", protect, deleteMyJob);
 
