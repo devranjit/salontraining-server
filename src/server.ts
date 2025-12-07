@@ -26,6 +26,9 @@ import recycleBinRoutes from "./routes/recycleBin.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import membershipRoutes from "./routes/membership.routes";
 import reviewRoutes from "./routes/review.routes";
+import couponRoutes from "./routes/coupon.routes";
+import storeCheckoutRoutes from "./routes/storeCheckout.routes";
+import systemLogRoutes from "./routes/systemLog.routes";
 import { ensureEmailDefaults } from "./services/emailService";
 import "./lib/cloudinary";
 
@@ -58,7 +61,11 @@ const app = express();
 app.use(
   express.json({
     verify: (req: any, _res, buf) => {
-      if (req.originalUrl?.startsWith("/api/memberships/stripe/webhook")) {
+      // Store raw body for Stripe webhook signature verification
+      if (
+        req.originalUrl?.startsWith("/api/memberships/stripe/webhook") ||
+        req.originalUrl?.startsWith("/api/store-checkout/webhook")
+      ) {
         req.rawBody = buf;
       }
     },
@@ -142,6 +149,9 @@ app.use("/api/education", educationRoutes);
 app.use("/api/member-videos", memberVideoRoutes);
 app.use("/api/memberships", membershipRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/store-checkout", storeCheckoutRoutes);
+app.use("/api/system-logs", systemLogRoutes);
 app.use("/api/system/maintenance", maintenanceRoutes);
 app.use("/api/admin/email", emailAdminRoutes);
 app.use("/api/admin/recycle-bin", recycleBinRoutes);

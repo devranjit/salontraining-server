@@ -197,6 +197,12 @@ const productSchema = new mongoose.Schema(
       enum: ["store", "listing"],
       default: "listing",  // Default to listing for backward compatibility
     },
+
+    // External shop URL for listing products
+    shopUrl: {
+      type: String,
+      trim: true,
+    },
     
     // Brand
     brand: { type: String },

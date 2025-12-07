@@ -353,11 +353,13 @@ async function runActiveApiSweep(): Promise<ModuleTaskResult> {
     { name: "Categories", fn: () => Category.find().limit(1).lean() },
     { name: "Trainer listings", fn: () => TrainerListing.find().limit(1).lean() },
     { name: "Events", fn: () => Event.find().limit(1).lean() },
-    { name: "Products", fn: () => Product.find().limit(1).lean() },
+    { name: "Products (All)", fn: () => Product.find().limit(1).lean() },
+    { name: "Store catalog", fn: () => Product.find({ productSource: "store" }).limit(1).lean() },
+    { name: "Product listings", fn: () => Product.find({ productSource: "listing" }).limit(1).lean() },
     { name: "Orders", fn: () => Order.find().limit(1).lean() },
+    { name: "Pending orders", fn: () => Order.find({ fulfillmentStatus: "pending" }).limit(1).lean() },
     { name: "Shipping methods", fn: () => ShippingMethod.find().limit(1).lean() },
     { name: "Shipping zones", fn: () => ShippingZone.find().limit(1).lean() },
-    { name: "Orders", fn: () => Order.find().limit(1).lean() },
     { name: "Blogs", fn: () => Blog.find().limit(1).lean() },
     { name: "Jobs", fn: () => Job.find().limit(1).lean() },
     { name: "Education", fn: () => Education.find().limit(1).lean() },
@@ -396,6 +398,58 @@ async function runActiveApiSweep(): Promise<ModuleTaskResult> {
   return {
     details: `Validated ${probes.length} API surfaces`,
     meta: { probes },
+  };
+}
+
+async function runStoreHealthCheck(): Promise<ModuleTaskResult> {
+  // Check store catalog products
+  const storeProducts = await Product.countDocuments({ productSource: "store" });
+  const publishedStoreProducts = await Product.countDocuments({ 
+    productSource: "store", 
+    status: "published" 
+  });
+  const lowStockProducts = await Product.countDocuments({ 
+    productSource: "store", 
+    stock: { $lte: 5 },
+    manageStock: true 
+  });
+
+  // Check orders
+  const totalOrders = await Order.countDocuments();
+  const pendingOrders = await Order.countDocuments({ fulfillmentStatus: "pending" });
+  const processingOrders = await Order.countDocuments({ fulfillmentStatus: "processing" });
+  const shippedOrders = await Order.countDocuments({ fulfillmentStatus: "shipped" });
+  const deliveredOrders = await Order.countDocuments({ fulfillmentStatus: "delivered" });
+
+  // Calculate revenue from paid orders
+  const paidOrders = await Order.find({ paymentStatus: "paid" }).select("grandTotal").lean();
+  const totalRevenue = paidOrders.reduce((sum, order) => sum + (order.grandTotal || 0), 0);
+
+  // Check shipping configuration
+  const shippingMethods = await ShippingMethod.countDocuments({ enabled: true });
+  const shippingZones = await ShippingZone.countDocuments();
+
+  return {
+    details: `Store: ${storeProducts} products, ${totalOrders} orders, $${totalRevenue.toFixed(2)} revenue`,
+    meta: {
+      products: {
+        total: storeProducts,
+        published: publishedStoreProducts,
+        lowStock: lowStockProducts,
+      },
+      orders: {
+        total: totalOrders,
+        pending: pendingOrders,
+        processing: processingOrders,
+        shipped: shippedOrders,
+        delivered: deliveredOrders,
+      },
+      revenue: totalRevenue,
+      shipping: {
+        methods: shippingMethods,
+        zones: shippingZones,
+      },
+    },
   };
 }
 
@@ -444,6 +498,7 @@ export const runSystemHealthCheck = async (req: Request, res: Response) => {
     modules.push(await runModule("email", "Email sending readiness", () => runEmailCheck()));
     modules.push(await runModule("search", "Search functionality", () => runSearchCheck(ctx)));
     modules.push(await runModule("featured", "Featured listings", () => runFeaturedCheck(ctx)));
+    modules.push(await runModule("store", "Store & E-commerce", () => runStoreHealthCheck()));
     modules.push(await runModule("activeApis", "Active API sweep", () => runActiveApiSweep()));
   } finally {
     await cleanup(ctx);

@@ -21,6 +21,7 @@ const shippingRateSchema = new mongoose.Schema(
     maxDistanceKm: Number,
     enableForDigital: { type: Boolean, default: false },
     allowPickup: { type: Boolean, default: false },
+    inheritMethodDefaultCost: { type: Boolean, default: false },
   },
   { _id: true }
 );

@@ -213,10 +213,10 @@ export const getProductsBySeller = async (req: Request, res: Response) => {
 };
 
 // ============================================================
-// USER (SELLER) ROUTES
+// USER (SELLER) ROUTES - PRODUCT LISTINGS
 // ============================================================
 
-// CREATE PRODUCT (User)
+// CREATE PRODUCT LISTING (User) - Simplified for listings
 export const createUserProduct = async (req: any, res: Response) => {
   try {
     const {
@@ -225,19 +225,11 @@ export const createUserProduct = async (req: any, res: Response) => {
       shortDescription,
       price,
       salePrice,
-      sku,
-      category,
       productType,
-      stock,
-      variations,
       images,
-      productFormat,
-      downloadUrl,
       tags,
-      brand,
-      weight,
-      dimensions,
       couponCode,
+      shopUrl,
     } = req.body;
 
     if (!name || !price) {
@@ -253,28 +245,20 @@ export const createUserProduct = async (req: any, res: Response) => {
       shortDescription,
       price,
       salePrice,
-      sku,
-      category,
-      productType,
-      stock: stock || 0,
-      variations: variations || [],
+      productType: productType || "other",
       images: images || [],
-      productFormat,
-      downloadUrl,
       tags: tags || [],
-      brand,
       couponCode: couponCode?.trim() || undefined,
-      weight,
-      dimensions,
+      shopUrl: shopUrl?.trim() || undefined,
       owner: req.user.id,
       created_by: req.user.id,
-      status: "pending", // User products need approval
-      productSource: "listing",  // User-submitted products are product listings
+      status: "pending",
+      productSource: "listing",
     });
 
     return res.json({
       success: true,
-      message: "Product created and pending approval",
+      message: "Product listing created and pending approval",
       product,
     });
   } catch (error: any) {
@@ -321,7 +305,7 @@ export const getMyProducts = async (req: any, res: Response) => {
   }
 };
 
-// UPDATE MY PRODUCT (User)
+// UPDATE MY PRODUCT LISTING (User) - Simplified for listings
 export const updateMyProduct = async (req: any, res: Response) => {
   try {
     const product = await Product.findOne({
@@ -332,12 +316,36 @@ export const updateMyProduct = async (req: any, res: Response) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found or unauthorized",
+        message: "Product listing not found or unauthorized",
       });
     }
 
-    // Don't allow changing status
-    const { status, featured, adminNotes, ...updateData } = req.body;
+    // Only allow updating listing-specific fields
+    const {
+      name,
+      description,
+      shortDescription,
+      price,
+      salePrice,
+      productType,
+      images,
+      tags,
+      couponCode,
+      shopUrl,
+    } = req.body;
+
+    const updateData: any = {};
+    
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (shortDescription !== undefined) updateData.shortDescription = shortDescription;
+    if (price !== undefined) updateData.price = price;
+    if (salePrice !== undefined) updateData.salePrice = salePrice;
+    if (productType !== undefined) updateData.productType = productType;
+    if (images !== undefined) updateData.images = images;
+    if (tags !== undefined) updateData.tags = tags;
+    if (couponCode !== undefined) updateData.couponCode = couponCode?.trim() || undefined;
+    if (shopUrl !== undefined) updateData.shopUrl = shopUrl?.trim() || undefined;
 
     // If product was published, set back to pending for review
     if (product.status === "published") {
@@ -352,7 +360,7 @@ export const updateMyProduct = async (req: any, res: Response) => {
 
     return res.json({
       success: true,
-      message: "Product updated",
+      message: "Product listing updated",
       product: updated,
     });
   } catch (error: any) {
@@ -705,6 +713,7 @@ export const createProduct = async (req: any, res: Response) => {
       soldIndividually,
       metaTitle,
       metaDescription,
+      shopUrl,
     } = req.body;
 
     if (!name || price === undefined) {
@@ -766,6 +775,7 @@ export const createProduct = async (req: any, res: Response) => {
       metaTitle,
       metaDescription,
       productSource: "store",  // Admin-created products are store catalog products
+      shopUrl: shopUrl?.trim(),
     });
 
     // Populate grouped products if any

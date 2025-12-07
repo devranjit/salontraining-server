@@ -72,6 +72,8 @@ export interface IOrder extends Document {
     transactionId?: string;
     provider?: string;
     paidAt?: Date;
+    stripeSessionId?: string;
+    stripePaymentIntentId?: string;
   };
   contactEmail?: string;
   contactPhone?: string;
@@ -155,6 +157,8 @@ const paymentSchema = new Schema(
     transactionId: String,
     provider: String,
     paidAt: Date,
+    stripeSessionId: String,
+    stripePaymentIntentId: String,
   },
   { _id: false }
 );

@@ -20,6 +20,7 @@ type ShippingRateInput = {
   maxDistanceKm?: number;
   enableForDigital?: boolean;
   allowPickup?: boolean;
+  inheritMethodDefaultCost?: boolean;
 };
 
 export interface ShippingAddressInput {
@@ -66,6 +67,37 @@ export interface ShippingSelectionInput {
 const toNumberOrUndefined = (value?: number | null) =>
   typeof value === "number" && !Number.isNaN(value) ? value : undefined;
 
+const hasNumericValue = (value?: number | null): value is number =>
+  typeof value === "number" && !Number.isNaN(value);
+
+const isPlaceholderRate = (rate: ShippingRateInput, method: any) => {
+  const label = rate.label?.trim().toLowerCase();
+  const methodLabel = typeof method.name === "string" ? method.name.trim().toLowerCase() : "";
+  const defaultLabel = !label || label === "default" || (methodLabel && label === methodLabel);
+
+  const noZone = !rate.zone;
+  const noThresholds =
+    !hasNumericValue(rate.minSubtotal) &&
+    !hasNumericValue(rate.maxSubtotal) &&
+    !hasNumericValue(rate.minDistanceKm) &&
+    !hasNumericValue(rate.maxDistanceKm) &&
+    !hasNumericValue(rate.freeAbove);
+  const noAdjustments =
+    !hasNumericValue(rate.perItemCost) &&
+    !hasNumericValue(rate.perWeightKgCost) &&
+    !hasNumericValue(rate.handlingFee);
+
+  return defaultLabel && noZone && noThresholds && noAdjustments;
+};
+
+const normalizeBasic = (value?: string) =>
+  typeof value === "string" ? value.trim().toLowerCase() : undefined;
+
+const normalizeAlphanumeric = (value?: string) =>
+  typeof value === "string" ? value.replace(/[^a-z0-9]/gi, "").toLowerCase() : undefined;
+
+const normalizePostalCode = (value?: string) => normalizeAlphanumeric(value);
+
 const haversineDistanceKm = (a: CoordinatesInput, b: CoordinatesInput) => {
   if (
     typeof a.lat !== "number" ||
@@ -90,6 +122,152 @@ const haversineDistanceKm = (a: CoordinatesInput, b: CoordinatesInput) => {
   return R * d;
 };
 
+function buildDefaultDigitalOption(cart: CartPricingSummary): ShippingOption {
+  return {
+    optionId: "digital:auto",
+    methodId: "digital",
+    label: cart.requiresShipping ? "Pickup / Arrange Later" : "Instant Delivery",
+    methodName: cart.requiresShipping ? "Pickup" : "Digital Delivery",
+    cost: 0,
+    currency: "USD",
+    type: cart.requiresShipping ? "local_pickup" : "digital",
+    description: cart.requiresShipping
+      ? "No carrier selected yet. The seller will coordinate fulfillment."
+      : "Digital items are delivered instantly after payment.",
+  };
+}
+
+// List of accepted US country variations
+const US_COUNTRY_VARIANTS = [
+  "usa",
+  "us",
+  "united states",
+  "united states of america",
+  "america",
+];
+
+const US_COUNTRY_VARIANTS_NORMALIZED = new Set(
+  US_COUNTRY_VARIANTS.map((entry) => normalizeAlphanumeric(entry)).filter(
+    (entry): entry is string => Boolean(entry)
+  )
+);
+
+const US_STATE_NAME_MAP: Record<string, string> = {
+  AL: "Alabama",
+  AK: "Alaska",
+  AZ: "Arizona",
+  AR: "Arkansas",
+  CA: "California",
+  CO: "Colorado",
+  CT: "Connecticut",
+  DE: "Delaware",
+  FL: "Florida",
+  GA: "Georgia",
+  HI: "Hawaii",
+  ID: "Idaho",
+  IL: "Illinois",
+  IN: "Indiana",
+  IA: "Iowa",
+  KS: "Kansas",
+  KY: "Kentucky",
+  LA: "Louisiana",
+  ME: "Maine",
+  MD: "Maryland",
+  MA: "Massachusetts",
+  MI: "Michigan",
+  MN: "Minnesota",
+  MS: "Mississippi",
+  MO: "Missouri",
+  MT: "Montana",
+  NE: "Nebraska",
+  NV: "Nevada",
+  NH: "New Hampshire",
+  NJ: "New Jersey",
+  NM: "New Mexico",
+  NY: "New York",
+  NC: "North Carolina",
+  ND: "North Dakota",
+  OH: "Ohio",
+  OK: "Oklahoma",
+  OR: "Oregon",
+  PA: "Pennsylvania",
+  RI: "Rhode Island",
+  SC: "South Carolina",
+  SD: "South Dakota",
+  TN: "Tennessee",
+  TX: "Texas",
+  UT: "Utah",
+  VT: "Vermont",
+  VA: "Virginia",
+  WA: "Washington",
+  WV: "West Virginia",
+  WI: "Wisconsin",
+  WY: "Wyoming",
+  DC: "District of Columbia",
+};
+
+const US_STATE_NORMALIZED_MAP: Record<string, string> = Object.entries(US_STATE_NAME_MAP).reduce(
+  (acc, [abbr, name]) => {
+    const key = name.replace(/[^a-z]/gi, "").toLowerCase();
+    acc[key] = abbr;
+    return acc;
+  },
+  {} as Record<string, string>
+);
+
+const normalizeCountryValue = (value?: string) => {
+  const normalized = normalizeAlphanumeric(value);
+  if (!normalized) return undefined;
+  if (US_COUNTRY_VARIANTS_NORMALIZED.has(normalized)) {
+    return "us";
+  }
+  return normalized;
+};
+
+const normalizeUSStateValue = (value?: string) => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const alphaOnly = trimmed.replace(/[^a-z]/gi, "").toLowerCase();
+  if (!alphaOnly) return undefined;
+
+  if (alphaOnly.length === 2) {
+    return alphaOnly.toUpperCase();
+  }
+
+  const abbreviation = US_STATE_NORMALIZED_MAP[alphaOnly];
+  if (abbreviation) {
+    return abbreviation.toUpperCase();
+  }
+
+  return trimmed.toLowerCase();
+};
+
+const matchList = (
+  zoneList?: string[],
+  value?: string,
+  normalizer: (input?: string) => string | undefined = normalizeBasic
+) => {
+  if (!zoneList || zoneList.length === 0) return true;
+  const normalizedValue = normalizer(value);
+  if (!normalizedValue) return false;
+  return zoneList.some((entry) => normalizer(entry) === normalizedValue);
+};
+
+const matchPrefix = (
+  prefixes?: string[],
+  value?: string,
+  normalizer: (input?: string) => string | undefined = normalizeBasic
+) => {
+  if (!prefixes || prefixes.length === 0) return true;
+  const normalizedValue = normalizer(value);
+  if (!normalizedValue) return false;
+  return prefixes.some((prefix) => {
+    const normalizedPrefix = normalizer(prefix);
+    return normalizedPrefix ? normalizedValue.startsWith(normalizedPrefix) : false;
+  });
+};
+
 function zoneMatches(
   zone: any,
   address?: ShippingAddressInput,
@@ -97,23 +275,11 @@ function zoneMatches(
 ): { match: boolean; distanceKm?: number } {
   const addr = address || {};
 
-  const matchList = (zoneList?: string[], value?: string) => {
-    if (!zoneList || zoneList.length === 0) return true;
-    if (!value) return false;
-    return zoneList.map((entry) => entry.toLowerCase()).includes(value.toLowerCase());
-  };
-
-  const matchPrefix = (prefixes?: string[], value?: string) => {
-    if (!prefixes || prefixes.length === 0) return true;
-    if (!value) return false;
-    return prefixes.some((prefix) => value.toLowerCase().startsWith(prefix.toLowerCase()));
-  };
-
-  if (!matchList(zone.countries, addr.country)) return { match: false };
-  if (!matchList(zone.states, addr.state)) return { match: false };
-  if (!matchList(zone.cities, addr.city)) return { match: false };
-  if (!matchList(zone.postalCodes, addr.postalCode)) return { match: false };
-  if (!matchPrefix(zone.zipPrefixes, addr.postalCode)) return { match: false };
+  if (!matchList(zone.countries, addr.country, normalizeCountryValue)) return { match: false };
+  if (!matchList(zone.states, addr.state, normalizeUSStateValue)) return { match: false };
+  if (!matchList(zone.cities, addr.city, normalizeAlphanumeric)) return { match: false };
+  if (!matchList(zone.postalCodes, addr.postalCode, normalizePostalCode)) return { match: false };
+  if (!matchPrefix(zone.zipPrefixes, addr.postalCode, normalizePostalCode)) return { match: false };
 
   if (zone.geoFence?.center && zone.geoFence?.radiusKm) {
     if (!coordinates || typeof coordinates.lat !== "number" || typeof coordinates.lng !== "number") {
@@ -132,19 +298,8 @@ function zoneMatches(
   return { match: true };
 }
 
-function buildDefaultDigitalOption(cart: CartPricingSummary): ShippingOption {
-  return {
-    optionId: "digital:auto",
-    methodId: "digital",
-    label: cart.requiresShipping ? "Pickup / Arrange Later" : "Instant Delivery",
-    methodName: cart.requiresShipping ? "Pickup" : "Digital Delivery",
-    cost: 0,
-    currency: "USD",
-    type: cart.requiresShipping ? "local_pickup" : "digital",
-    description: cart.requiresShipping
-      ? "No carrier selected yet. The seller will coordinate fulfillment."
-      : "Digital items are delivered instantly after payment.",
-  };
+function isUSAddress(country?: string): boolean {
+  return normalizeCountryValue(country) === "us";
 }
 
 export async function calculateShippingOptions(input: ShippingQuoteInput): Promise<ShippingOption[]> {
@@ -156,6 +311,11 @@ export async function calculateShippingOptions(input: ShippingQuoteInput): Promi
 
   if (!cart.requiresShipping) {
     return [buildDefaultDigitalOption(cart)];
+  }
+
+  // Restrict shipping to USA only
+  if (!isUSAddress(address?.country)) {
+    throw new Error("We currently only ship within the United States. International shipping coming soon!");
   }
 
   const zones = await ShippingZone.find().sort({ priority: -1, createdAt: 1 }).lean();
@@ -235,8 +395,25 @@ export async function calculateShippingOptions(input: ShippingQuoteInput): Promi
       if (typeof rate.minSubtotal === "number" && cart.subtotal < rate.minSubtotal) continue;
       if (typeof rate.maxSubtotal === "number" && cart.subtotal > rate.maxSubtotal) continue;
 
-      if (typeof rate.freeAbove === "number" && cart.subtotal >= rate.freeAbove) {
-        rate.baseCost = 0;
+      const explicitInherit = rate.inheritMethodDefaultCost === true;
+      const fallbackInherit =
+        // Legacy records (or current blank inputs) rely on the method-level default cost
+        rate.inheritMethodDefaultCost === undefined &&
+        method.type !== "local_pickup" &&
+        rate.type !== "local_pickup" &&
+        hasNumericValue(method.defaultCost) &&
+        (!hasNumericValue(rate.baseCost) || (rate.baseCost === 0 && isPlaceholderRate(rate, method)));
+
+      const shouldInheritDefaultCost = explicitInherit || fallbackInherit;
+
+      let baseCost = shouldInheritDefaultCost
+        ? method.defaultCost || 0
+        : hasNumericValue(rate.baseCost)
+        ? rate.baseCost
+        : method.defaultCost || 0;
+
+      if (hasNumericValue(rate.freeAbove) && cart.subtotal >= rate.freeAbove) {
+        baseCost = 0;
       }
 
       if (typeof rate.minDistanceKm === "number" && distanceKm !== undefined && distanceKm < rate.minDistanceKm) {
@@ -248,11 +425,11 @@ export async function calculateShippingOptions(input: ShippingQuoteInput): Promi
       }
 
       let cost =
-        (typeof rate.baseCost === "number" ? rate.baseCost : method.defaultCost || 0) +
-        (rate.perItemCost || 0) * cart.totalPhysicalItems +
-        (rate.perWeightKgCost || 0) * cart.totalWeightKg +
-        (rate.handlingFee || 0) +
-        (method.handlingFee || 0);
+        baseCost +
+        (hasNumericValue(rate.perItemCost) ? rate.perItemCost : 0) * cart.totalPhysicalItems +
+        (hasNumericValue(rate.perWeightKgCost) ? rate.perWeightKgCost : 0) * cart.totalWeightKg +
+        (hasNumericValue(rate.handlingFee) ? rate.handlingFee : 0) +
+        (hasNumericValue(method.handlingFee) ? method.handlingFee : 0);
 
       if (cost < 0) cost = 0;
 
@@ -282,16 +459,20 @@ export async function calculateShippingOptions(input: ShippingQuoteInput): Promi
   }
 
   if (!options.length) {
-    options.push({
-      optionId: "fallback:standard",
-      methodId: "fallback",
-      label: "Standard Shipping",
-      methodName: "Standard Shipping",
-      description: "Default fallback rate",
-      cost: 12,
-      currency: "USD",
-      type: "flat",
-    });
+    if (!methods.length) {
+      options.push({
+        optionId: "fallback:standard",
+        methodId: "fallback",
+        label: "Standard Shipping",
+        methodName: "Standard Shipping",
+        description: "Default fallback rate",
+        cost: 12,
+        currency: "USD",
+        type: "flat",
+      });
+    } else {
+      return [];
+    }
   }
 
   return options.sort((a, b) => a.cost - b.cost);
