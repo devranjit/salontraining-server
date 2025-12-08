@@ -93,6 +93,12 @@ export async function verifyRecaptchaToken(
  */
 export function recaptchaMiddleware(expectedAction?: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // Allow admins/managers to bypass recaptcha
+    const role = (req as any)?.user?.role;
+    if (role === "admin" || role === "manager") {
+      return next();
+    }
+
     const token = req.body.recaptchaToken;
 
     // Skip verification in development if no secret key
@@ -141,4 +147,5 @@ export function recaptchaMonitor(expectedAction?: string) {
     next();
   };
 }
+
 

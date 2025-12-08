@@ -29,6 +29,7 @@ import reviewRoutes from "./routes/review.routes";
 import couponRoutes from "./routes/coupon.routes";
 import storeCheckoutRoutes from "./routes/storeCheckout.routes";
 import systemLogRoutes from "./routes/systemLog.routes";
+import formSubmissionRoutes from "./routes/formSubmission.routes";
 import { ensureEmailDefaults } from "./services/emailService";
 import "./lib/cloudinary";
 
@@ -158,6 +159,7 @@ app.use("/api/admin/recycle-bin", recycleBinRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/forms", formSubmissionRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

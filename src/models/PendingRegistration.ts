@@ -39,3 +39,4 @@ pendingRegistrationSchema.index({ isLocked: 1 });
 export const PendingRegistration = mongoose.model("PendingRegistration", pendingRegistrationSchema);
 export default PendingRegistration;
 
+

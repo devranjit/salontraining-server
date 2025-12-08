@@ -19,11 +19,42 @@ const DISALLOWED_UPDATE_FIELDS = [
   "updatedAt",
 ];
 
+function normalizeDescription(input: any) {
+  if (input === undefined) return undefined;
+  const text = typeof input === "string" ? input : String(input ?? "");
+
+  // Remove script/style blocks completely
+  const withoutDangerous = text
+    .replace(/<\s*script[\s\S]*?>[\s\S]*?<\/\s*script\s*>/gi, "")
+    .replace(/<\s*style[\s\S]*?>[\s\S]*?<\/\s*style\s*>/gi, "");
+
+  // Convert common block endings to line breaks, drop all other tags
+  const withBreaks = withoutDangerous
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|div|li|ul|ol|h[1-6]|table|tr|td|th)\s*>/gi, "\n");
+
+  const stripped = withBreaks
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\r?\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return stripped;
+}
+
 function sanitizePendingPayload(payload: any) {
   const safe: any = {};
   Object.entries(payload || {}).forEach(([key, value]) => {
     if (!DISALLOWED_UPDATE_FIELDS.includes(key)) {
-      safe[key] = value;
+      if (key === "description") {
+        const normalized = normalizeDescription(value);
+        if (normalized !== undefined) {
+          safe.description = normalized;
+        }
+      } else {
+        safe[key] = value;
+      }
     }
   });
   return safe;
@@ -50,9 +81,17 @@ function applyPendingUpdate(listing: any) {
 // ===============================
 export const createTrainer = async (req: any, res: Response) => {
   try {
+    const payload = { ...req.body };
+    if ("description" in payload) {
+      const normalized = normalizeDescription(payload.description);
+      if (normalized !== undefined) {
+        payload.description = normalized;
+      }
+    }
+
     const listing = await TrainerListing.create({
       owner: req.user.id,
-      ...req.body,
+      ...payload,
       status: "pending",
     });
 
@@ -402,9 +441,17 @@ export const getPendingCounts = async (req: Request, res: Response) => {
 // ===============================
 export const updateTrainerAdmin = async (req: Request, res: Response) => {
   try {
+    const updateData: any = { ...req.body };
+    if ("description" in updateData) {
+      const normalized = normalizeDescription(updateData.description);
+      if (normalized !== undefined) {
+        updateData.description = normalized;
+      }
+    }
+
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
-      { ...req.body },
+      { ...updateData },
       { new: true }
     );
 
