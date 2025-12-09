@@ -39,7 +39,7 @@ const jobSchema = new mongoose.Schema(
     },
 
     // Contact & Application
-    email: { type: String, required: true },
+    email: { type: String }, // optional email
     phone: { type: String },
     website: { type: String },
     applyUrl: { type: String },
@@ -123,6 +123,8 @@ jobSchema.index({ deadline: 1 });
 jobSchema.index({ owner: 1 });
 
 export const Job = mongoose.model("Job", jobSchema);
+
+
 
 
 

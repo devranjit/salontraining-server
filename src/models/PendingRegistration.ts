@@ -40,3 +40,5 @@ export const PendingRegistration = mongoose.model("PendingRegistration", pending
 export default PendingRegistration;
 
 
+
+

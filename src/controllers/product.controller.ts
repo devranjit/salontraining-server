@@ -77,23 +77,24 @@ export const getProducts = async (req: Request, res: Response) => {
       query.featured = true;
     }
 
-    // Sorting
-    let sortOption: any = { createdAt: -1 };
+    // Sorting (keep featured items first for listing/archive views)
+    const baseSort = sourceFilter === "listing" ? { featured: -1 } : {};
+    let sortOption: any = { ...baseSort, createdAt: -1 };
     switch (sort) {
       case "oldest":
-        sortOption = { createdAt: 1 };
+        sortOption = { ...baseSort, createdAt: 1 };
         break;
       case "price_low":
-        sortOption = { price: 1 };
+        sortOption = { ...baseSort, price: 1, createdAt: -1 };
         break;
       case "price_high":
-        sortOption = { price: -1 };
+        sortOption = { ...baseSort, price: -1, createdAt: -1 };
         break;
       case "popular":
-        sortOption = { sales: -1 };
+        sortOption = { ...baseSort, sales: -1, createdAt: -1 };
         break;
       case "rating":
-        sortOption = { averageRating: -1 };
+        sortOption = { ...baseSort, averageRating: -1, createdAt: -1 };
         break;
     }
 
@@ -1025,7 +1026,7 @@ export const setProductPending = async (req: any, res: Response) => {
 // TOGGLE FEATURED (Admin)
 export const toggleFeatured = async (req: any, res: Response) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id).select("featured productSource");
 
     if (!product) {
       return res.status(404).json({
@@ -1034,13 +1035,22 @@ export const toggleFeatured = async (req: any, res: Response) => {
       });
     }
 
-    product.featured = !product.featured;
-    await product.save();
+    // Only toggle featured; keep the existing productSource (default to listing for legacy docs)
+    const updateData: any = { featured: !product.featured };
+
+    if (product.productSource) {
+      updateData.productSource = product.productSource;
+    } else {
+      updateData.productSource = "listing";
+    }
+
+    const updated = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true });
 
     return res.json({
       success: true,
-      message: product.featured ? "Product featured" : "Product unfeatured",
-      featured: product.featured,
+      message: updated?.featured ? "Product featured" : "Product unfeatured",
+      featured: updated?.featured,
+      productSource: updated?.productSource,
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });

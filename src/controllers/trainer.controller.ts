@@ -1,97 +1,18 @@
 import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
 import mongoose from "mongoose";
-import { moveToRecycleBin } from "../services/recycleBinService";
-import { User } from "../models/User";
 
-const DISALLOWED_UPDATE_FIELDS = [
-  "_id",
-  "owner",
-  "status",
-  "pendingAction",
-  "pendingChanges",
-  "pendingReason",
-  "pendingRequestedAt",
-  "statusBeforePending",
-  "featured",
-  "views",
-  "createdAt",
-  "updatedAt",
-];
-
-function normalizeDescription(input: any) {
-  if (input === undefined) return undefined;
-  const text = typeof input === "string" ? input : String(input ?? "");
-
-  // Remove script/style blocks completely
-  const withoutDangerous = text
-    .replace(/<\s*script[\s\S]*?>[\s\S]*?<\/\s*script\s*>/gi, "")
-    .replace(/<\s*style[\s\S]*?>[\s\S]*?<\/\s*style\s*>/gi, "");
-
-  // Convert common block endings to line breaks, drop all other tags
-  const withBreaks = withoutDangerous
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\/\s*(p|div|li|ul|ol|h[1-6]|table|tr|td|th)\s*>/gi, "\n");
-
-  const stripped = withBreaks
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\r?\n/g, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  return stripped;
-}
-
-function sanitizePendingPayload(payload: any) {
-  const safe: any = {};
-  Object.entries(payload || {}).forEach(([key, value]) => {
-    if (!DISALLOWED_UPDATE_FIELDS.includes(key)) {
-      if (key === "description") {
-        const normalized = normalizeDescription(value);
-        if (normalized !== undefined) {
-          safe.description = normalized;
-        }
-      } else {
-        safe[key] = value;
-      }
-    }
-  });
-  return safe;
-}
-
-function clearPendingMeta(listing: any) {
-  listing.pendingAction = undefined;
-  listing.pendingChanges = undefined;
-  listing.pendingReason = undefined;
-  listing.pendingRequestedAt = undefined;
-  listing.statusBeforePending = undefined;
-}
-
-function applyPendingUpdate(listing: any) {
-  if (listing.pendingAction === "update" && listing.pendingChanges) {
-    const sanitized = sanitizePendingPayload(listing.pendingChanges);
-    Object.assign(listing, sanitized);
-  }
-  clearPendingMeta(listing);
-}
+// Helper to normalize user id across decoded tokens
+const currentUserId = (req: any) => req.user?._id || req.user?.id;
 
 // ===============================
 // USER — Create Trainer Listing
 // ===============================
 export const createTrainer = async (req: any, res: Response) => {
   try {
-    const payload = { ...req.body };
-    if ("description" in payload) {
-      const normalized = normalizeDescription(payload.description);
-      if (normalized !== undefined) {
-        payload.description = normalized;
-      }
-    }
-
     const listing = await TrainerListing.create({
       owner: req.user.id,
-      ...payload,
+      ...req.body,
       status: "pending",
     });
 
@@ -106,7 +27,7 @@ export const createTrainer = async (req: any, res: Response) => {
 // ===============================
 export async function getMyTrainers(req: Request, res: Response) {
   try {
-const userId = req.user?._id || req.user?.id;
+const userId = currentUserId(req);
 
     const listings = await TrainerListing.find({ owner: userId })
       .sort({ createdAt: -1 });
@@ -125,103 +46,77 @@ const userId = req.user?._id || req.user?.id;
   }
 } // ← FIXED MISSING BRACE HERE!!!
 
-export const getMyTrainerDetail = async (req: any, res: Response) => {
+// ===============================
+// USER — My Trainer Detail
+// ===============================
+export async function getMyTrainerDetail(req: any, res: Response) {
   try {
     const listing = await TrainerListing.findOne({
       _id: req.params.id,
-      owner: req.user?.id || req.user?._id,
+      owner: currentUserId(req),
     });
 
     if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Listing not found" });
+      return res.status(404).json({ success: false, message: "Trainer not found" });
     }
 
     return res.json({ success: true, listing });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err?.message || "Server error",
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
-export const requestTrainerUpdate = async (req: any, res: Response) => {
+// ===============================
+// USER — Request Update/Delete
+// ===============================
+export async function requestTrainerUpdate(req: any, res: Response) {
   try {
     const listing = await TrainerListing.findOne({
       _id: req.params.id,
-      owner: req.user?.id || req.user?._id,
+      owner: currentUserId(req),
     });
 
     if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Listing not found" });
+      return res.status(404).json({ success: false, message: "Trainer not found" });
     }
 
-    const pendingChanges = sanitizePendingPayload(req.body);
-
     listing.pendingAction = "update";
-    listing.pendingChanges = pendingChanges;
-    listing.pendingReason = req.body?.requestNote || "";
+    listing.pendingChanges = req.body?.changes || req.body || {};
+    listing.pendingReason = req.body?.reason || "";
     listing.pendingRequestedAt = new Date();
     listing.statusBeforePending = listing.status;
-    listing.status = "pending";
-    listing.adminNotes =
-      "User submitted updates for review. Please verify the pending changes.";
-
+    listing.status = "changes_requested";
     await listing.save();
 
-    return res.json({
-      success: true,
-      message: "Update submitted for admin review",
-      listing,
-    });
+    return res.json({ success: true, message: "Update requested", listing });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err?.message || "Server error",
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
-export const requestTrainerDelete = async (req: any, res: Response) => {
+export async function requestTrainerDelete(req: any, res: Response) {
   try {
     const listing = await TrainerListing.findOne({
       _id: req.params.id,
-      owner: req.user?.id || req.user?._id,
+      owner: currentUserId(req),
     });
 
     if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Listing not found" });
+      return res.status(404).json({ success: false, message: "Trainer not found" });
     }
 
     listing.pendingAction = "delete";
-    listing.pendingChanges = null;
     listing.pendingReason = req.body?.reason || "";
     listing.pendingRequestedAt = new Date();
     listing.statusBeforePending = listing.status;
     listing.status = "pending";
-    listing.adminNotes =
-      "User requested this listing to be deleted. Approve to remove.";
-
     await listing.save();
 
-    return res.json({
-      success: true,
-      message: "Delete request submitted for admin approval",
-      listing,
-    });
+    return res.json({ success: true, message: "Delete requested", listing });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err?.message || "Server error",
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 
 // ===============================
@@ -250,34 +145,11 @@ export async function adminGetAllTrainers(req: Request, res: Response) {
 // ===============================
 export const approveTrainer = async (req: Request, res: Response) => {
   try {
-    const listing = await TrainerListing.findById(req.params.id);
-
-    if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Trainer not found" });
-    }
-
-    if (listing.pendingAction === "delete") {
-      await listing.deleteOne();
-      return res.json({
-        success: true,
-        deleted: true,
-        message: "Delete request approved",
-      });
-    }
-
-    const previousStatus = listing.statusBeforePending;
-
-    if (listing.pendingAction === "update") {
-      applyPendingUpdate(listing);
-    } else {
-      clearPendingMeta(listing);
-    }
-
-    listing.status = (previousStatus || "approved") as "pending" | "approved" | "rejected" | "changes_requested" | "published";
-
-    await listing.save();
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "approved" },
+      { new: true }
+    );
 
     res.json({ success: true, listing });
   } catch (err: any) {
@@ -290,28 +162,11 @@ export const approveTrainer = async (req: Request, res: Response) => {
 // ===============================
 export const rejectTrainer = async (req: Request, res: Response) => {
   try {
-    const listing = await TrainerListing.findById(req.params.id);
-
-    if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Trainer not found" });
-    }
-
-    if (listing.pendingAction) {
-      const previousStatus = listing.statusBeforePending || listing.status || "approved";
-      clearPendingMeta(listing);
-      listing.status = previousStatus as "pending" | "approved" | "rejected" | "changes_requested" | "published";
-      await listing.save();
-      return res.json({
-        success: true,
-        listing,
-        message: "Pending request rejected",
-      });
-    }
-
-    listing.status = "rejected";
-    await listing.save();
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "rejected" },
+      { new: true }
+    );
 
     res.json({ success: true, listing });
   } catch (err: any) {
@@ -320,9 +175,9 @@ export const rejectTrainer = async (req: Request, res: Response) => {
 };
 
 // ===============================
-// ADMIN — Set to Pending (Draft)
+// ADMIN — Set Pending
 // ===============================
-export const setPendingTrainer = async (req: Request, res: Response) => {
+export async function setPendingTrainer(req: Request, res: Response) {
   try {
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
@@ -331,109 +186,66 @@ export const setPendingTrainer = async (req: Request, res: Response) => {
     );
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Trainer not found",
+      });
     }
 
-    res.json({ success: true, listing, message: "Trainer set to pending" });
+    return res.json({ success: true, listing });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 // ===============================
 // ADMIN — Request Changes
 // ===============================
-export const requestChanges = async (req: Request, res: Response) => {
+export async function requestChanges(req: Request, res: Response) {
   try {
     const { adminNotes } = req.body;
-    
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
-      { 
-        status: "changes_requested",
-        adminNotes: adminNotes || "Please review and make necessary changes."
-      },
+      { status: "changes_requested", adminNotes },
       { new: true }
     );
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
-    }
-
-    res.json({ success: true, listing });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ===============================
-// ADMIN — Publish Trainer (with optional dates)
-// ===============================
-export const publishTrainer = async (req: Request, res: Response) => {
-  try {
-    const { publishDate, expiryDate } = req.body;
-
-    const listing = await TrainerListing.findById(req.params.id);
-
-    if (!listing) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Trainer not found" });
-    }
-
-    if (listing.pendingAction === "delete") {
-      await listing.deleteOne();
-      return res.json({
-        success: true,
-        deleted: true,
-        message: "Delete request approved",
+      return res.status(404).json({
+        success: false,
+        message: "Trainer not found",
       });
     }
 
-    if (listing.pendingAction === "update") {
-      applyPendingUpdate(listing);
-    } else {
-      clearPendingMeta(listing);
+    return res.json({ success: true, listing });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ===============================
+// ADMIN — Publish Trainer
+// ===============================
+export async function publishTrainer(req: Request, res: Response) {
+  try {
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "published", publishDate: new Date() },
+      { new: true }
+    );
+
+    if (!listing) {
+      return res.status(404).json({
+        success: false,
+        message: "Trainer not found",
+      });
     }
 
-    listing.status = "published";
-    listing.publishDate = publishDate || new Date();
-    listing.expiryDate = expiryDate || listing.expiryDate;
-
-    await listing.save();
-
-    res.json({ success: true, listing });
+    return res.json({ success: true, listing });
   } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
-
-// ===============================
-// ADMIN — Get Pending Counts (all listing types)
-// ===============================
-export const getPendingCounts = async (req: Request, res: Response) => {
-  try {
-    const trainersCount = await TrainerListing.countDocuments({ status: "pending" });
-    
-    // Add more counts here when other listing models exist
-    // const eventsCount = await EventListing.countDocuments({ status: "pending" });
-    // etc.
-
-    res.json({
-      success: true,
-      counts: {
-        trainers: trainersCount,
-        events: 0,
-        virtualClasses: 0,
-        inpersonClasses: 0,
-        jobs: 0,
-        blogs: 0,
-      }
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
+}
 
 
 // ===============================
@@ -441,17 +253,9 @@ export const getPendingCounts = async (req: Request, res: Response) => {
 // ===============================
 export const updateTrainerAdmin = async (req: Request, res: Response) => {
   try {
-    const updateData: any = { ...req.body };
-    if ("description" in updateData) {
-      const normalized = normalizeDescription(updateData.description);
-      if (normalized !== undefined) {
-        updateData.description = normalized;
-      }
-    }
-
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
-      { ...updateData },
+      { ...req.body },
       { new: true }
     );
 
@@ -468,49 +272,6 @@ export const updateTrainerAdmin = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ===============================
-// ADMIN — Change Trainer Owner
-// ===============================
-export const adminChangeTrainerOwner = async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "User ID is required" });
-    }
-
-    const newOwner = await User.findById(userId).select("name email status");
-    if (!newOwner) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    if (newOwner.status === "blocked") {
-      return res.status(400).json({ success: false, message: "Blocked users cannot own listings" });
-    }
-
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { owner: newOwner._id },
-      { new: true }
-    ).populate("owner", "name email");
-
-    if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
-    }
-
-    return res.json({
-      success: true,
-      message: "Trainer owner updated",
-      listing,
-      owner: listing.owner,
-    });
-  } catch (err: any) {
-    if (err.name === "CastError") {
-      return res.status(400).json({ success: false, message: "Invalid ID supplied" });
-    }
-    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -548,32 +309,25 @@ export const toggleFeatured = async (req: Request, res: Response) => {
 };
 
 // ===============================
-// ADMIN — Delete Trainer
+// ADMIN — Pending Counts
 // ===============================
-export const adminDeleteTrainer = async (req: any, res: Response) => {
+export async function getPendingCounts(_req: Request, res: Response) {
   try {
-    const listing = await TrainerListing.findById(req.params.id);
-
-    if (!listing) {
-      return res.status(404).json({
-        success: false,
-        message: "Trainer not found",
-      });
-    }
-
-    await moveToRecycleBin("trainer", listing, { deletedBy: req.user?.id });
+    const [pending, approved, published, rejected] = await Promise.all([
+      TrainerListing.countDocuments({ status: "pending" }),
+      TrainerListing.countDocuments({ status: "approved" }),
+      TrainerListing.countDocuments({ status: "published" }),
+      TrainerListing.countDocuments({ status: "rejected" }),
+    ]);
 
     return res.json({
       success: true,
-      message: "Trainer listing moved to recycle bin",
+      pendingCounts: { pending, approved, published, rejected },
     });
   } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err?.message || "Failed to delete trainer",
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
 
 
 // ===============================
@@ -583,8 +337,7 @@ export const adminGetTrainerById = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
 
-    const listing = await TrainerListing.findById(id)
-      .populate("owner", "name email");
+    const listing = await TrainerListing.findById(id);
     if (!listing) {
       return res.status(404).json({
         success: false,
@@ -602,109 +355,111 @@ export const adminGetTrainerById = async (req: Request, res: Response) => {
 };
 
 // ===============================
-// PUBLIC — Get All Trainers (with filters)
+// ADMIN — Delete Trainer
 // ===============================
-export const getAllTrainers = async (req: Request, res: Response) => {
+export async function adminDeleteTrainer(req: Request, res: Response) {
   try {
-    const {
-      search,
-      category,
-      city,
-      state,
-      country,
-      sort = "newest",
-      page = 1,
-      limit = 12,
-      featured,
-    } = req.query;
+    const listing = await TrainerListing.findByIdAndDelete(req.params.id);
 
-    // Build query - only show published/approved trainers
-    const query: any = {
-      status: { $in: ["approved", "published"] }
-    };
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Trainer not found" });
+    }
 
-    // Search filter
+    return res.json({ success: true, message: "Trainer deleted", listing });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ===============================
+// ADMIN — Change Trainer Owner
+// ===============================
+export async function adminChangeTrainerOwner(req: Request, res: Response) {
+  try {
+    const { userId } = req.body;
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: "Valid userId is required" });
+    }
+
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { owner: userId },
+      { new: true }
+    );
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Trainer not found" });
+    }
+
+    return res.json({ success: true, listing });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ===============================
+// PUBLIC — All / Featured
+// ===============================
+export async function getAllTrainers(req: Request, res: Response) {
+  try {
+    const { search, category, city, sort, page = 1, limit = 12 } = req.query;
+    const query: any = { status: { $in: ["approved", "published"] } };
+
+    if (category) query.category = category;
+    if (city) query.city = city;
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { city: { $regex: search, $options: "i" } },
-        { state: { $regex: search, $options: "i" } },
+        { title: { $regex: search as string, $options: "i" } },
+        { description: { $regex: search as string, $options: "i" } },
+        { city: { $regex: search as string, $options: "i" } },
       ];
     }
 
-    // Category filter
-    if (category && category !== "all") {
-      query.category = category;
-    }
+    const baseSort = { featured: -1 }; // keep featured trainers first
+    const sortOption: Record<string, any> = {
+      newest: { ...baseSort, createdAt: -1 },
+      oldest: { ...baseSort, createdAt: 1 },
+      popular: { ...baseSort, views: -1, createdAt: -1 },
+    };
 
-    // Location filters
-    if (city) query.city = { $regex: city, $options: "i" };
-    if (state) query.state = { $regex: state, $options: "i" };
-    if (country) query.country = { $regex: country, $options: "i" };
+    const skip = (Number(page) - 1) * Number(limit);
 
-    // Featured only filter
-    if (featured === "true") {
-      query.featured = true;
-    }
-
-    // Sort options
-    let sortOption: any = { createdAt: -1 }; // newest
-    if (sort === "oldest") sortOption = { createdAt: 1 };
-    if (sort === "popular") sortOption = { views: -1 };
-    if (sort === "az") sortOption = { title: 1 };
-    if (sort === "za") sortOption = { title: -1 };
-
-    // Pagination
-    const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 12;
-    const skip = (pageNum - 1) * limitNum;
-
-    // Execute query
-    const [trainers, total] = await Promise.all([
+    const [listings, total] = await Promise.all([
       TrainerListing.find(query)
-        .sort(sortOption)
+        .sort(sortOption[(sort as string) || "newest"] || { ...baseSort, createdAt: -1 })
         .skip(skip)
-        .limit(limitNum)
-        .select("-adminNotes"), // Don't expose admin notes publicly
-      TrainerListing.countDocuments(query)
+        .limit(Number(limit)),
+      TrainerListing.countDocuments(query),
     ]);
 
     return res.json({
       success: true,
-      trainers,
+      listings,
+      trainers: listings, // alias for front-end compatibility
       pagination: {
-        page: pageNum,
-        limit: limitNum,
+        page: Number(page),
+        limit: Number(limit),
         total,
-        pages: Math.ceil(total / limitNum),
-      }
+        pages: Math.ceil(total / Number(limit)),
+      },
     });
-  } catch (err: any) {
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
-
-// ===============================
-// PUBLIC — Get Featured Trainers
-// ===============================
-export const getFeaturedTrainers = async (req: Request, res: Response) => {
-  try {
-    const limit = parseInt(req.query.limit as string) || 4;
-    
-    const trainers = await TrainerListing.find({
-      featured: true,
-      status: { $in: ["approved", "published"] }
-    })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .select("-adminNotes");
-
-    return res.json({ success: true, trainers });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
-};
+}
+
+export async function getFeaturedTrainers(req: Request, res: Response) {
+  try {
+    const { limit = 4 } = req.query;
+    const listings = await TrainerListing.find({
+      status: { $in: ["approved", "published"] },
+      featured: true,
+    })
+      .sort({ createdAt: -1 })
+      .limit(Number(limit));
+
+    return res.json({ success: true, listings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
