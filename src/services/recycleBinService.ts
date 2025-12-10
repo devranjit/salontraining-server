@@ -108,15 +108,46 @@ export async function moveToRecycleBin(
 
 export async function listRecycleBinItems(query: {
   entityType?: EntityKey;
+  search?: string;
+  page?: number;
+  limit?: number;
+  startDate?: string;
+  endDate?: string;
 }) {
   const filter: Record<string, any> = {};
   if (query.entityType) {
     filter.entityType = query.entityType;
   }
+  if (query.search) {
+    const regex = new RegExp(query.search, "i");
+    filter.$or = [
+      { "metadata.title": regex },
+      { "metadata.name": regex },
+      { "metadata.slug": regex },
+      { "metadata.email": regex },
+      { "metadata.owner": regex },
+    ];
+  }
+  if (query.startDate || query.endDate) {
+    filter.deletedAt = {};
+    if (query.startDate) filter.deletedAt.$gte = new Date(query.startDate);
+    if (query.endDate) filter.deletedAt.$lte = new Date(query.endDate);
+  }
 
-  return RecycleBinItem.find(filter)
-    .populate("deletedBy", "name email")
-    .sort({ deletedAt: -1 });
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 30;
+  const skip = (page - 1) * limit;
+
+  const [items, total] = await Promise.all([
+    RecycleBinItem.find(filter)
+      .populate("deletedBy", "name email")
+      .sort({ deletedAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    RecycleBinItem.countDocuments(filter),
+  ]);
+
+  return { items, total, page, limit, pages: Math.ceil(total / limit) };
 }
 
 export async function restoreFromRecycleBin(itemId: string) {

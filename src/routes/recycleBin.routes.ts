@@ -4,6 +4,7 @@ import { adminOnly } from "../middleware/admin";
 import {
   deleteRecycleBinItem,
   getRecycleBinItems,
+  bulkDeleteRecycleBinItems,
   recycleBinCron,
   restoreRecycleBinItem,
 } from "../controllers/recycleBin.controller";
@@ -16,6 +17,7 @@ router.post("/cron/run", recycleBinCron);
 router.use(protect, adminOnly);
 
 router.get("/", getRecycleBinItems);
+router.post("/bulk-delete", bulkDeleteRecycleBinItems);
 router.post("/:id/restore", restoreRecycleBinItem);
 router.delete("/:id", deleteRecycleBinItem);
 

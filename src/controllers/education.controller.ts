@@ -2,6 +2,10 @@ import { Request, Response } from "express";
 import { Education } from "../models/Education";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
+import {
+  computeEducationExpiryDate,
+  expireOutdatedEducation,
+} from "../services/educationLifecycleService";
 
 // Helper to get image URL from various formats
 const getImageUrl = (item: any): string | undefined => {
@@ -15,6 +19,8 @@ const getImageUrl = (item: any): string | undefined => {
 // ===============================
 export const getEducationListings = async (req: Request, res: Response) => {
   try {
+    await expireOutdatedEducation();
+
     const {
       search,
       educationType,
@@ -31,8 +37,12 @@ export const getEducationListings = async (req: Request, res: Response) => {
       featured,
     } = req.query;
 
+    const now = new Date();
     const query: any = {
       status: { $in: ["approved", "published"] },
+      isExpired: { $ne: true },
+      publishDate: { $lte: now },
+      $or: [{ expiryDate: null }, { expiryDate: { $gt: now } }],
     };
 
     // Filter by education type
@@ -109,11 +119,17 @@ export const getEducationListings = async (req: Request, res: Response) => {
 // ===============================
 export const getFeaturedEducation = async (req: Request, res: Response) => {
   try {
+    await expireOutdatedEducation();
+
     const { limit = 4, type } = req.query;
 
+    const now = new Date();
     const query: any = {
       status: { $in: ["approved", "published"] },
       featured: true,
+      isExpired: { $ne: true },
+      publishDate: { $lte: now },
+      $or: [{ expiryDate: null }, { expiryDate: { $gt: now } }],
     };
 
     if (type && type !== "all") {
@@ -136,10 +152,23 @@ export const getFeaturedEducation = async (req: Request, res: Response) => {
 // ===============================
 export const getSingleEducation = async (req: Request, res: Response) => {
   try {
+    await expireOutdatedEducation();
+
     const listing = await Education.findById(req.params.id).populate("owner", "name email");
 
     if (!listing || !["approved", "published"].includes(listing.status)) {
       return res.status(404).json({ success: false, message: "Education listing not found or not published" });
+    }
+
+    const now = new Date();
+    if (
+      listing.expiryDate &&
+      listing.expiryDate <= now &&
+      !listing.isExpired
+    ) {
+      listing.isExpired = true;
+      listing.isPublished = false;
+      await listing.save();
     }
 
     // Increment views
@@ -212,6 +241,14 @@ export const createEducation = async (req: any, res: Response) => {
       return res.status(400).json({ success: false, message: "Invalid education type" });
     }
 
+    const now = new Date();
+    const expiryDate = computeEducationExpiryDate({
+      classDate,
+      endTime,
+      educationType,
+    });
+    const hasExpired = expiryDate ? expiryDate <= now : false;
+
     const newListing = new Education({
       owner: req.user._id,
       educationType,
@@ -259,6 +296,10 @@ export const createEducation = async (req: any, res: Response) => {
       materialsIncluded,
       certificationOffered,
       status: "pending",
+      publishDate: now,
+      ...(expiryDate !== undefined ? { expiryDate } : {}),
+      isExpired: hasExpired,
+      isPublished: !hasExpired,
     });
 
     await newListing.save();
@@ -277,6 +318,7 @@ export const createEducation = async (req: any, res: Response) => {
 // ===============================
 export const getMyEducationListings = async (req: any, res: Response) => {
   try {
+    await expireOutdatedEducation();
     const listings = await Education.find({ owner: req.user._id }).sort({ createdAt: -1 });
     return res.json({ success: true, listings });
   } catch (error: any) {
@@ -289,6 +331,7 @@ export const getMyEducationListings = async (req: any, res: Response) => {
 // ===============================
 export const getMyEducationById = async (req: any, res: Response) => {
   try {
+    await expireOutdatedEducation();
     const listing = await Education.findOne({
       _id: req.params.id,
       owner: req.user._id,
@@ -312,23 +355,48 @@ export const getMyEducationById = async (req: any, res: Response) => {
 // ===============================
 export const updateMyEducation = async (req: any, res: Response) => {
   try {
-    const listing = await Education.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user._id },
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const listing = await Education.findOne({ _id: req.params.id, owner: req.user._id });
 
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
     }
 
-    // If user updates, set status back to pending for re-review
-    if (listing.status !== "pending" && listing.status !== "draft") {
-      listing.status = "pending";
-      await listing.save();
+    const now = new Date();
+    const classDate = req.body.classDate ?? listing.classDate;
+    const endTime = req.body.endTime ?? listing.endTime;
+    const educationType = req.body.educationType ?? listing.educationType;
+
+    const expiryDate = computeEducationExpiryDate({
+      classDate,
+      endTime,
+      educationType,
+    });
+    const hasExpired = expiryDate ? expiryDate <= now : false;
+
+    const updatePayload: any = {
+      ...req.body,
+      ...(expiryDate !== undefined ? { expiryDate } : {}),
+      isExpired: hasExpired,
+      isPublished: !hasExpired,
+    };
+
+    const updated = await Education.findOneAndUpdate(
+      { _id: req.params.id, owner: req.user._id },
+      updatePayload,
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
     }
 
-    return res.json({ success: true, message: "Education listing updated successfully", listing });
+    // If user updates, set status back to pending for re-review
+    if (updated.status !== "pending" && updated.status !== "draft") {
+      updated.status = "pending";
+      await updated.save();
+    }
+
+    return res.json({ success: true, message: "Education listing updated successfully", listing: updated });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -339,6 +407,7 @@ export const updateMyEducation = async (req: any, res: Response) => {
 // ===============================
 export const deleteMyEducation = async (req: any, res: Response) => {
   try {
+    await expireOutdatedEducation();
     const listing = await Education.findOne({ _id: req.params.id, owner: req.user._id });
 
     if (!listing) {
@@ -358,6 +427,8 @@ export const deleteMyEducation = async (req: any, res: Response) => {
 // ===============================
 export const adminGetAllEducation = async (req: Request, res: Response) => {
   try {
+    await expireOutdatedEducation();
+
     const { status, educationType, search, page = 1, limit = 10 } = req.query;
 
     const query: any = {};
@@ -437,6 +508,7 @@ export const getEducationPendingCounts = async (req: Request, res: Response) => 
 // ===============================
 export const adminGetEducationById = async (req: Request, res: Response) => {
   try {
+    await expireOutdatedEducation();
     const listing = await Education.findById(req.params.id).populate("owner", "name email");
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found" });
@@ -455,16 +527,37 @@ export const adminGetEducationById = async (req: Request, res: Response) => {
 // ===============================
 export const adminUpdateEducation = async (req: Request, res: Response) => {
   try {
-    const listing = await Education.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-
+    const listing = await Education.findById(req.params.id);
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found" });
     }
 
-    return res.json({ success: true, message: "Education listing updated successfully", listing });
+    const now = new Date();
+    const classDate = req.body.classDate ?? listing.classDate;
+    const endTime = req.body.endTime ?? listing.endTime;
+    const educationType = req.body.educationType ?? listing.educationType;
+    const expiryDate = computeEducationExpiryDate({
+      classDate,
+      endTime,
+      educationType,
+    });
+    const hasExpired = expiryDate ? expiryDate <= now : false;
+
+    const updated = await Education.findByIdAndUpdate(
+      req.params.id,
+      {
+        ...req.body,
+        ...(expiryDate !== undefined ? { expiryDate } : {}),
+        isExpired: hasExpired,
+        isPublished: !hasExpired,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    return res.json({ success: true, message: "Education listing updated successfully", listing: updated });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -556,14 +649,26 @@ export const approveEducation = async (req: Request, res: Response) => {
 // ===============================
 export const publishEducation = async (req: Request, res: Response) => {
   try {
-    const listing = await Education.findByIdAndUpdate(
-      req.params.id,
-      { status: "published" },
-      { new: true }
-    );
+    const listing = await Education.findById(req.params.id);
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found" });
     }
+
+    const now = new Date();
+    const expiryDate = computeEducationExpiryDate({
+      classDate: listing.classDate,
+      endTime: listing.endTime,
+      educationType: listing.educationType,
+    });
+    const hasExpired = expiryDate ? expiryDate <= now : false;
+
+    listing.status = "published";
+    listing.publishDate = now;
+    if (expiryDate !== undefined) listing.expiryDate = expiryDate;
+    listing.isExpired = hasExpired;
+    listing.isPublished = !hasExpired;
+    await listing.save();
+
     return res.json({ success: true, message: "Education listing published", listing });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -645,6 +750,41 @@ export const toggleEducationFeatured = async (req: Request, res: Response) => {
       message: listing.featured ? "Education listing marked as featured" : "Education listing removed from featured",
       listing,
     });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Set / clear / force expiry for Education
+// ===============================
+export const expireEducation = async (req: Request, res: Response) => {
+  try {
+    const listing = await Education.findById(req.params.id);
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Education listing not found" });
+    }
+
+    const now = new Date();
+    let expiryDate: Date | null | undefined;
+
+    if (req.body.expiryDate === null) {
+      expiryDate = null; // clear expiry
+    } else if (req.body.expiryDate) {
+      expiryDate = new Date(req.body.expiryDate);
+    } else {
+      expiryDate = now; // expire immediately
+    }
+
+    const hasExpired = expiryDate ? expiryDate <= now : false;
+
+    listing.expiryDate = expiryDate ?? undefined;
+    listing.isExpired = hasExpired;
+    listing.isPublished = !hasExpired;
+
+    await listing.save();
+
+    return res.json({ success: true, listing });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

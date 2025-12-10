@@ -39,8 +39,30 @@ const listingSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+
+    publishDate: {
+      type: Date,
+      default: Date.now,
+    },
+
+    expiryDate: {
+      type: Date,
+    },
+
+    isPublished: {
+      type: Boolean,
+      default: true,
+    },
+
+    isExpired: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 )
+
+listingSchema.index({ expiryDate: 1 });
+listingSchema.index({ publishDate: 1 });
 
 export const Listing = mongoose.model("Listing", listingSchema);

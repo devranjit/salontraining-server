@@ -461,6 +461,44 @@ export const rejectJob = async (req: Request, res: Response) => {
 };
 
 // ===============================
+// ADMIN — Expire / schedule expiry for Job
+// ===============================
+export const expireJob = async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+
+    const job = await Job.findById(req.params.id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    let expiryDate: Date | null | undefined;
+    if (req.body.expiryDate === null) {
+      expiryDate = null;
+    } else if (req.body.expiryDate) {
+      expiryDate = new Date(req.body.expiryDate);
+    } else {
+      expiryDate = now; // default: expire immediately
+    }
+
+    job.expiryDate = expiryDate ?? undefined;
+
+    if (expiryDate && expiryDate <= now) {
+      job.status = "expired";
+    } else if ((expiryDate === null || expiryDate === undefined) && job.status === "expired") {
+      // clear expiry: restore to published so it shows again
+      job.status = "published";
+    }
+
+    await job.save();
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
 // ADMIN — Request Changes
 // ===============================
 export const requestJobChanges = async (req: Request, res: Response) => {

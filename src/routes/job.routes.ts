@@ -27,6 +27,7 @@ import {
   toggleJobFeatured,
   getJobPendingCounts,
   adminChangeJobOwner,
+  expireJob,
 } from "../controllers/job.controller";
 
 const router = Router();
@@ -56,6 +57,7 @@ router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingJob);
 router.patch("/admin/:id/filled", protect, managerOrAdmin, markJobFilled);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleJobFeatured);
 router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeJobOwner);
+router.patch("/admin/:id/expire", protect, managerOrAdmin, expireJob);
 
 /* ---------------------- PUBLIC SINGLE JOB (must be last) ---------------------- */
 router.get("/:id", getSingleJob);

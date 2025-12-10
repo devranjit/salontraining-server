@@ -22,6 +22,7 @@ import {
   setPendingEducation,
   toggleEducationFeatured,
   adminChangeEducationOwner,
+  expireEducation,
 } from "../controllers/education.controller";
 
 const router = Router();
@@ -50,6 +51,7 @@ router.patch("/admin/:id/request-changes", protect, managerOrAdmin, requestEduca
 router.patch("/admin/:id/set-pending", protect, managerOrAdmin, setPendingEducation);
 router.patch("/admin/:id/owner", protect, managerOrAdmin, adminChangeEducationOwner);
 router.patch("/admin/:id/feature", protect, managerOrAdmin, toggleEducationFeatured);
+router.patch("/admin/:id/expire", protect, managerOrAdmin, expireEducation);
 
 /* ---------------------- PUBLIC SINGLE (must be last) ---------------------- */
 router.get("/:id", getSingleEducation);

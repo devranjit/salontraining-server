@@ -5,6 +5,7 @@ import { User } from "../models/User";
 import { Listing } from "../models/Listing";
 import { dispatchEmailEvent } from "../services/emailService";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import { expireOutdatedListings } from "../services/listingLifecycleService";
 
 const router = Router();
 
@@ -23,6 +24,8 @@ router.get("/users", protect, adminOnly, async (req, res) => {
 // ADMIN — Get ALL listings (with pagination, search, filters)
 router.get("/listings", protect, adminOnly, async (req, res) => {
   try {
+    await expireOutdatedListings();
+
     const {
       page = 1,
       limit = 30,
@@ -175,6 +178,47 @@ router.put("/listings/:id/reject", protect, adminOnly, async (req, res) => {
           },
         }).catch((err) => console.error("listing reject email failed:", err));
       }
+    }
+
+    res.json({ success: true, listing });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ADMIN — Set or force expiry for a listing
+router.put("/listings/:id/expire", protect, adminOnly, async (req, res) => {
+  try {
+    await expireOutdatedListings();
+
+    const now = new Date();
+    let expiryDate: Date | null;
+
+    if (req.body.expiryDate === null) {
+      // explicit clear removes expiry and unexpires listing
+      expiryDate = null;
+    } else if (req.body.expiryDate) {
+      expiryDate = new Date(req.body.expiryDate);
+    } else {
+      // no date provided => expire immediately
+      expiryDate = now;
+    }
+
+    const isExpired = expiryDate ? expiryDate <= now : false;
+    const listing = await Listing.findByIdAndUpdate(
+      req.params.id,
+      {
+        expiryDate,
+        isExpired,
+        isPublished: !isExpired,
+      },
+      { new: true }
+    );
+
+    if (!listing) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Listing not found" });
     }
 
     res.json({ success: true, listing });

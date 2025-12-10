@@ -111,6 +111,11 @@ const educationSchema = new mongoose.Schema(
     featured: { type: Boolean, default: false },
     adminNotes: { type: String },
     views: { type: Number, default: 0 },
+
+    publishDate: { type: Date, default: Date.now },
+    expiryDate: { type: Date },
+    isPublished: { type: Boolean, default: true },
+    isExpired: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -124,8 +129,11 @@ educationSchema.index({ city: 1, state: 1 });
 educationSchema.index({ classDate: 1 });
 educationSchema.index({ difficulty: 1 });
 educationSchema.index({ price: 1 });
+educationSchema.index({ expiryDate: 1 });
+educationSchema.index({ publishDate: 1 });
 
 export const Education = mongoose.model("Education", educationSchema);
+
 
 
 
