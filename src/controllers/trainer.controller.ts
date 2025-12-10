@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
+import User from "../models/User";
 import mongoose from "mongoose";
 
 // Helper to normalize user id across decoded tokens
@@ -124,13 +125,55 @@ export async function requestTrainerDelete(req: any, res: Response) {
 // ===============================
 export async function adminGetAllTrainers(req: Request, res: Response) {
   try {
-    const trainers = await TrainerListing.find()
-      .populate("owner", "name email")
-      .sort({ createdAt: -1 });
+    const {
+      page = 1,
+      limit = 30,
+      search,
+      status,
+      sort = "newest",
+    } = req.query;
+
+    const query: any = {};
+    if (status && status !== "all") query.status = status;
+
+    let ownerIds: string[] | undefined;
+    if (search) {
+      const regex = new RegExp(search as string, "i");
+      const owners = await User.find({ email: regex }).select("_id");
+      ownerIds = owners.map((o: any) => o._id.toString());
+      query.$or = [
+        { title: regex },
+        { email: regex },
+        ...(ownerIds && ownerIds.length ? [{ owner: { $in: ownerIds } }] : []),
+      ];
+    }
+
+    const sortMap: Record<string, any> = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+    };
+    const sortOption = sortMap[(sort as string) || "newest"] || { createdAt: -1 };
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [trainers, total] = await Promise.all([
+      TrainerListing.find(query)
+        .populate("owner", "name email")
+        .sort(sortOption)
+        .skip(skip)
+        .limit(Number(limit)),
+      TrainerListing.countDocuments(query),
+    ]);
 
     return res.json({
       success: true,
       trainers,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit)),
+      },
     });
   } catch (err) {
     return res.status(500).json({

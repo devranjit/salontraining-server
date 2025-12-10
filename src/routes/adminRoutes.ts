@@ -20,14 +20,55 @@ router.get("/users", protect, adminOnly, async (req, res) => {
   res.json({ success: true, users });
 });
 
-// ADMIN — Get ALL listings
+// ADMIN — Get ALL listings (with pagination, search, filters)
 router.get("/listings", protect, adminOnly, async (req, res) => {
   try {
-    const listings = await Listing.find()
-      .sort({ createdAt: -1 })
-      .populate("owner", "name email role");
+    const {
+      page = 1,
+      limit = 30,
+      search,
+      status,
+      featured,
+    } = req.query;
 
-    res.json({ success: true, listings });
+    const query: any = {};
+    if (status) query.status = status;
+    if (typeof featured === "string") query.featured = featured === "true";
+
+    // Collect owner ids if searching by email/title
+    let ownerIds: string[] | undefined;
+    if (search) {
+      const regex = new RegExp(search as string, "i");
+      const owners = await User.find({ email: regex }).select("_id");
+      ownerIds = owners.map((o) => o._id.toString());
+      query.$or = [
+        { title: regex },
+        { email: regex },
+        ...(ownerIds && ownerIds.length ? [{ owner: { $in: ownerIds } }] : []),
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [listings, total] = await Promise.all([
+      Listing.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate("owner", "name email role"),
+      Listing.countDocuments(query),
+    ]);
+
+    res.json({
+      success: true,
+      listings,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit)),
+      },
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

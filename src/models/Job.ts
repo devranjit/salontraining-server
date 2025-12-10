@@ -123,6 +123,7 @@ jobSchema.index({ deadline: 1 });
 jobSchema.index({ owner: 1 });
 
 export const Job = mongoose.model("Job", jobSchema);
+export default Job;
 
 
 

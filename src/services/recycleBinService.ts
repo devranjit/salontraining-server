@@ -2,7 +2,7 @@ import { Model } from "mongoose";
 import { Listing } from "../models/Listing";
 import { Event } from "../models/Event";
 import Product from "../models/Product";
-import { Job } from "../models/Job";
+import Job from "../models/Job";
 import { Blog } from "../models/Blog";
 import { Education } from "../models/Education";
 import MemberVideo from "../models/MemberVideo";
