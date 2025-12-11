@@ -35,6 +35,7 @@ export const getProducts = async (req: Request, res: Response) => {
       sort = "newest",
       featured,
       productSource,  // Filter by product source: "store" or "listing"
+    tags,
     } = req.query;
 
     // Filter by product source: "store" or "listing"
@@ -60,11 +61,26 @@ export const getProducts = async (req: Request, res: Response) => {
       query.productType = productType;
     }
 
-    // Price range
-    if (minPrice || maxPrice) {
+  // Tags filter (comma-separated)
+  if (tags) {
+    const tagList = String(tags)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tagList.length > 0) {
+      query.tags = { $in: tagList };
+    }
+  }
+
+    // Price range (support zero values)
+    const hasMinPrice = minPrice !== undefined && minPrice !== "";
+    const hasMaxPrice = maxPrice !== undefined && maxPrice !== "";
+    if (hasMinPrice || hasMaxPrice) {
       query.price = {};
-      if (minPrice) query.price.$gte = Number(minPrice);
-      if (maxPrice) query.price.$lte = Number(maxPrice);
+      const minVal = Number(minPrice);
+      const maxVal = Number(maxPrice);
+      if (hasMinPrice && !isNaN(minVal)) query.price.$gte = minVal;
+      if (hasMaxPrice && !isNaN(maxVal)) query.price.$lte = maxVal;
     }
 
     // Search
@@ -125,6 +141,38 @@ export const getProducts = async (req: Request, res: Response) => {
         total,
         pages: Math.ceil(total / Number(limit)),
       },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET filters for products (categories, product types, tags)
+export const getProductFilters = async (req: Request, res: Response) => {
+  try {
+    const sourceFilter = (req.query.productSource as string) || "store";
+    const baseQuery: any = {
+      status: { $in: ["approved", "published"] },
+    };
+    if (sourceFilter === "store") {
+      baseQuery.productSource = "store";
+    } else if (sourceFilter === "listing") {
+      baseQuery.productSource = { $ne: "store" };
+    }
+
+    const [categories, productTypes, tags, brands] = await Promise.all([
+      Category.find().sort({ name: 1 }),
+      Product.distinct("productType", baseQuery),
+      Product.distinct("tags", baseQuery),
+      Product.distinct("brand", baseQuery),
+    ]);
+
+    return res.json({
+      success: true,
+      categories,
+      productTypes: (productTypes as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      tags: (tags as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      brands: (brands as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });

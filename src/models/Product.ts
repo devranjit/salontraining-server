@@ -87,8 +87,8 @@ const productSchema = new mongoose.Schema(
     // Product categories for beauty industry
     productType: {
       type: String,
-      enum: ["hair", "makeup", "skincare", "nails", "tools", "education", "other"],
-      default: "other",
+      trim: true,
+      default: "",
     },
 
     couponCode: { type: String, trim: true },

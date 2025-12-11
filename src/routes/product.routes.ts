@@ -5,6 +5,7 @@ import {
   getFeaturedProducts,
   getSingleProduct,
   getProductsBySeller,
+  getProductFilters,
   // User (Seller)
   createUserProduct,
   getMyProducts,
@@ -49,6 +50,7 @@ const router = Router();
 ============================================ */
 router.get("/", getProducts);
 router.get("/featured", getFeaturedProducts);
+router.get("/filters", getProductFilters);
 router.get("/seller/:sellerId", getProductsBySeller);
 router.get("/:id", getSingleProduct);
 
