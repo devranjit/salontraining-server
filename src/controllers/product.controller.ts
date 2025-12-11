@@ -279,9 +279,12 @@ export const getSingleProduct = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    // Increment views
-    product.views += 1;
-    await product.save();
+    // Increment views without triggering full validation that can fail on legacy/partial records
+    const nextViews = product.views + 1;
+    product.views = nextViews;
+    Product.updateOne({ _id: product._id }, { $inc: { views: 1 } }).catch(() => {
+      // Non-blocking: if analytics update fails, still return the product
+    });
 
     return res.json({ success: true, product });
   } catch (error: any) {
