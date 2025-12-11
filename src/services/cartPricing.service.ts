@@ -63,7 +63,10 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
   const products = await Product.find({
     _id: { $in: productIds },
     status: { $in: ["approved", "published"] },
-  }).lean();
+  })
+    .populate("groupedProducts.product", "price salePrice productFormat weight images owner")
+    .populate("bundleGroups.items.product", "price salePrice productFormat weight images owner")
+    .lean();
 
   const normalizedItems: NormalizedCartItem[] = [];
   const stockAdjustments: StockAdjustment[] = [];
@@ -111,9 +114,46 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
       });
     }
 
-    const basePrice =
-      product.salePrice && product.salePrice < product.price ? product.salePrice : product.price;
-    const unitPrice = Number((basePrice + variationExtra).toFixed(2));
+    const isBundle = product.productStructure === "bundle";
+
+    // Compute bundle price when bundleGroups exist; otherwise use base+variations
+    const computeGroupTotal = (items: any[], mode: string, groupDiscount: number) => {
+      const subtotal = items.reduce((sum, item) => {
+        const prod = item.product || {};
+        const base = Number(prod.salePrice ?? prod.price ?? 0);
+        const itemDisc = Number(item.discountPercent ?? 0);
+        const qty = Number(item.quantity ?? 0);
+        let price = base * (1 - itemDisc / 100);
+        if (mode === "discounted") {
+          price = price * (1 - Number(groupDiscount ?? 0) / 100);
+        }
+        return sum + price * qty;
+      }, 0);
+      return subtotal;
+    };
+
+    let unitPrice: number;
+    if (isBundle && Array.isArray(product.bundleGroups) && product.bundleGroups.length > 0) {
+      const groupTotals = product.bundleGroups.map((g: any) =>
+        computeGroupTotal(g.items || [], g.pricingMode || product.bundlePricingMode || "calculated", g.discountPercent || 0)
+      );
+      const aggregate = groupTotals.reduce((a, b) => a + b, 0);
+      // If top-level bundlePricingMode is discounted, apply bundleDiscount; if fixed and price > 0, prefer that
+      const topMode = product.bundlePricingMode || "calculated";
+      if (topMode === "fixed" && product.price > 0) {
+        unitPrice = Number(product.price);
+      } else if (topMode === "discounted" && product.bundleDiscount) {
+        unitPrice = Number(aggregate * (1 - Number(product.bundleDiscount || 0) / 100));
+      } else {
+        unitPrice = Number(aggregate);
+      }
+    } else {
+      const basePrice =
+        product.salePrice && product.salePrice < product.price ? product.salePrice : product.price;
+      unitPrice = Number((basePrice + variationExtra).toFixed(2));
+    }
+
+    unitPrice = Number(unitPrice.toFixed(2));
     const itemSubtotal = Number((unitPrice * quantity).toFixed(2));
     subtotal += itemSubtotal;
 
@@ -155,6 +195,7 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
     stockAdjustments,
   };
 }
+
 
 
 

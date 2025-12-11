@@ -59,6 +59,28 @@ const groupedItemSchema = new mongoose.Schema({
   discountPercent: { type: Number, default: 0 }, // discount when bought as part of group
 });
 
+// Bundle groups (multiple grouped sets per bundle)
+const bundleGroupSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true, default: "" },
+    pricingMode: {
+      type: String,
+      enum: ["fixed", "calculated", "discounted", "sum", "discount"], // include legacy aliases
+      default: "calculated",
+    },
+    discountPercent: { type: Number, default: 0 }, // applies when pricingMode is discounted
+    items: [
+      {
+        product: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+        quantity: { type: Number, default: 1, min: 1 },
+        optional: { type: Boolean, default: false },
+        discountPercent: { type: Number, default: 0 },
+      },
+    ],
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -110,11 +132,14 @@ const productSchema = new mongoose.Schema(
 
     // Grouped/Bundle products - contains references to other products
     groupedProducts: [groupedItemSchema],
+    // Advanced bundle groups (multiple sets)
+    bundleGroups: [bundleGroupSchema],
     
     // Bundle pricing mode
     bundlePricingMode: {
       type: String,
-      enum: ["fixed", "calculated", "discounted"],
+      // Accept legacy aliases "sum" and "discount" for compatibility
+      enum: ["fixed", "calculated", "discounted", "sum", "discount"],
       default: "fixed",
     },
     bundleDiscount: { type: Number, default: 0 }, // Discount percentage for calculated bundles

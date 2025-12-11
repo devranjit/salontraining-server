@@ -17,6 +17,44 @@ const getActionsForRole = (role?: string) =>
   ROLE_CONTROL_ACTIONS[role as keyof typeof ROLE_CONTROL_ACTIONS] ||
   ROLE_CONTROL_ACTIONS.default;
 
+const normalizeBundleMode = (mode?: string) => {
+  if (!mode) return "fixed";
+  const val = String(mode).toLowerCase();
+  if (val === "sum" || val === "calculated") return "calculated";
+  if (val === "discount" || val === "discounted") return "discounted";
+  return "fixed";
+};
+
+const normalizeBundleGroups = (groups?: any[]) => {
+  if (!Array.isArray(groups)) return [];
+  return groups
+    .map((g) => ({
+      name: g?.name || "",
+      pricingMode: normalizeBundleMode(g?.pricingMode),
+      discountPercent: Number(g?.discountPercent ?? 0),
+      items: Array.isArray(g?.items)
+        ? g.items
+            .filter((it: any) => it?.product)
+            .map((it: any) => ({
+              product: it.product,
+              quantity: Number(it.quantity ?? 1) || 1,
+              optional: Boolean(it.optional),
+              discountPercent: Number(it.discountPercent ?? 0),
+            }))
+        : [],
+    }))
+    .filter((g) => g.items.length > 0);
+};
+
+const buildSlug = (name?: string) =>
+  name
+    ? name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "")
+        .concat("-", Date.now().toString(36))
+    : undefined;
+
 // ============================================================
 // PUBLIC ROUTES
 // ============================================================
@@ -214,18 +252,27 @@ export const getSingleProduct = async (req: Request, res: Response) => {
     // Check if id is a valid MongoDB ObjectId
     const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
 
+    const basePopulate = [
+      { path: "category", select: "name" },
+      { path: "owner", select: "name email" },
+      {
+        path: "groupedProducts.product",
+        select: "name slug price salePrice images productFormat stock",
+      },
+      {
+        path: "bundleGroups.items.product",
+        select: "name slug price salePrice images productFormat stock",
+      },
+    ];
+
     if (isValidObjectId) {
       // Try to find by ID first
-      product = await Product.findById(id)
-        .populate("category", "name")
-        .populate("owner", "name email");
+      product = await Product.findById(id).populate(basePopulate);
     }
 
     // If not found by ID, try slug
     if (!product) {
-      product = await Product.findOne({ slug: id })
-        .populate("category", "name")
-        .populate("owner", "name email");
+      product = await Product.findOne({ slug: id }).populate(basePopulate);
     }
 
     if (!product) {
@@ -756,6 +803,7 @@ export const createProduct = async (req: any, res: Response) => {
       combinedVariations,
       useCombinedVariations,
       groupedProducts,
+      bundleGroups,
       bundlePricingMode,
       bundleDiscount,
       images,
@@ -793,10 +841,14 @@ export const createProduct = async (req: any, res: Response) => {
       });
     }
 
-    // Determine product structure based on input
+    // Normalize bundle mode and determine product structure based on input
+    const normalizedBundleMode = normalizeBundleMode(bundlePricingMode);
+    const normalizedBundleGroups = normalizeBundleGroups(bundleGroups);
     let finalProductStructure = productStructure || "simple";
-    if (groupedProducts && groupedProducts.length > 0) {
-      finalProductStructure = bundlePricingMode === "fixed" ? "bundle" : "grouped";
+    if (normalizedBundleGroups.length > 0) {
+      finalProductStructure = "bundle";
+    } else if (groupedProducts && groupedProducts.length > 0) {
+      finalProductStructure = normalizedBundleMode === "fixed" ? "bundle" : "grouped";
     } else if ((variations && variations.length > 0) || (combinedVariations && combinedVariations.length > 0)) {
       finalProductStructure = "variable";
     }
@@ -816,7 +868,8 @@ export const createProduct = async (req: any, res: Response) => {
       combinedVariations: combinedVariations || [],
       useCombinedVariations: useCombinedVariations || false,
       groupedProducts: groupedProducts || [],
-      bundlePricingMode: bundlePricingMode || "fixed",
+      bundleGroups: normalizedBundleGroups,
+      bundlePricingMode: normalizedBundleMode,
       bundleDiscount: bundleDiscount || 0,
       images: images || [],
       productFormat,
@@ -873,8 +926,24 @@ export const updateProduct = async (req: any, res: Response) => {
 
     // Determine product structure based on update data
     const updateData = { ...req.body };
+    if (updateData.bundleGroups) {
+      updateData.bundleGroups = normalizeBundleGroups(updateData.bundleGroups);
+      updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
+    }
     
-    if (updateData.groupedProducts?.length > 0) {
+    // Ensure slug stays valid: regenerate when name changes and slug not provided
+    if (!updateData.slug && updateData.name) {
+      updateData.slug = buildSlug(updateData.name);
+    }
+    // If product somehow lost slug, backfill from existing name
+    if (!product.slug && !updateData.slug) {
+      updateData.slug = buildSlug(product.name);
+    }
+
+    if (Array.isArray(updateData.bundleGroups) && updateData.bundleGroups.length > 0) {
+      updateData.productStructure = "bundle";
+    } else if (updateData.groupedProducts?.length > 0) {
+      updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
       updateData.productStructure = updateData.bundlePricingMode === "fixed" ? "bundle" : "grouped";
     } else if (updateData.variations?.length > 0 || updateData.combinedVariations?.length > 0) {
       updateData.productStructure = "variable";
@@ -888,6 +957,7 @@ export const updateProduct = async (req: any, res: Response) => {
       updateData,
       { new: true }
     ).populate("groupedProducts.product", "name slug price salePrice images stock")
+     .populate("bundleGroups.items.product", "name slug price salePrice images stock")
      .populate("relatedProducts", "name slug price images")
      .populate("crossSellProducts", "name slug price images");
 
@@ -1142,6 +1212,7 @@ export const getProductWithGroupedDetails = async (req: Request, res: Response) 
       .populate("category", "name")
       .populate("owner", "name email")
       .populate("groupedProducts.product", "name slug price salePrice images stock productFormat variations")
+      .populate("bundleGroups.items.product", "name slug price salePrice images stock productFormat variations")
       .populate("relatedProducts", "name slug price salePrice images")
       .populate("crossSellProducts", "name slug price salePrice images");
 
@@ -1178,8 +1249,11 @@ export const searchProductsForGrouping = async (req: any, res: Response) => {
   try {
     const { search, exclude } = req.query;
     
+    // Allow admins to pull any catalog items that can be nested (simple/variable) and
+    // are not archived/rejected. Using a wider status set makes it easier to build grouped
+    // products before publishing.
     const query: any = {
-      status: "published",
+      status: { $in: ["published", "approved", "pending", "draft"] },
       productStructure: { $in: ["simple", "variable"] }, // Can't nest grouped products
     };
 
@@ -1192,7 +1266,12 @@ export const searchProductsForGrouping = async (req: any, res: Response) => {
 
     // Exclude current product and already grouped products
     if (exclude) {
-      const excludeIds = Array.isArray(exclude) ? exclude : [exclude];
+      const excludeIds = Array.isArray(exclude)
+        ? exclude
+        : String(exclude)
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean);
       query._id = { $nin: excludeIds };
     }
 
