@@ -198,17 +198,33 @@ export const getProductFilters = async (req: Request, res: Response) => {
       baseQuery.productSource = { $ne: "store" };
     }
 
-    const [categories, productTypes, tags, brands] = await Promise.all([
-      Category.find().sort({ name: 1 }),
-      Product.distinct("productType", baseQuery),
+    // Aggregate only filters that have at least one published/approved product
+    const [categoryAgg, productTypeAgg, tags, brands] = await Promise.all([
+      Product.aggregate([
+        { $match: { ...baseQuery, category: { $ne: null } } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+      ]),
+      Product.aggregate([
+        { $match: { ...baseQuery, productType: { $ne: null, $ne: "" } } },
+        { $group: { _id: "$productType", count: { $sum: 1 } } },
+      ]),
       Product.distinct("tags", baseQuery),
       Product.distinct("brand", baseQuery),
     ]);
 
+    // Fetch only existing categories that have products
+    const categoryIds = categoryAgg.map((c: any) => c._id).filter(Boolean);
+    const categories = await Category.find({ _id: { $in: categoryIds } })
+      .select("_id name")
+      .sort({ name: 1 });
+
     return res.json({
       success: true,
       categories,
-      productTypes: (productTypes as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      productTypes: (productTypeAgg as any[])
+        .map((t) => t._id)
+        .filter(Boolean)
+        .sort((a: string, b: string) => a.localeCompare(b)),
       tags: (tags as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
       brands: (brands as string[]).filter(Boolean).sort((a, b) => a.localeCompare(b)),
     });
@@ -934,20 +950,23 @@ export const updateProduct = async (req: any, res: Response) => {
       updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
     }
     
-    // Ensure slug stays valid: regenerate when name changes and slug not provided
-    if (!updateData.slug && updateData.name) {
-      updateData.slug = buildSlug(updateData.name);
-    }
-    // If product somehow lost slug, backfill from existing name
-    if (!product.slug && !updateData.slug) {
+    // Slug handling: only change slug when an explicit slug is provided.
+    // This avoids breaking existing product URLs when a product name changes.
+    if (updateData.slug) {
+      updateData.slug = buildSlug(updateData.slug);
+    } else if (!product.slug) {
+      // Backfill slug only if the product somehow has none
       updateData.slug = buildSlug(product.name);
     }
 
     if (Array.isArray(updateData.bundleGroups) && updateData.bundleGroups.length > 0) {
       updateData.productStructure = "bundle";
-    } else if (updateData.groupedProducts?.length > 0) {
       updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
-      updateData.productStructure = updateData.bundlePricingMode === "fixed" ? "bundle" : "grouped";
+    } else if (updateData.groupedProducts?.length > 0) {
+      // Pure grouped products (no bundle groups)
+      updateData.productStructure = "grouped";
+      updateData.bundlePricingMode = undefined;
+      updateData.bundleGroups = [];
     } else if (updateData.variations?.length > 0 || updateData.combinedVariations?.length > 0) {
       updateData.productStructure = "variable";
     } else if (updateData.productStructure === undefined) {

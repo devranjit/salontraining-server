@@ -283,10 +283,17 @@ function calculateVariationStock(doc: any): number {
     return doc.combinedVariations.reduce((sum: number, cv: any) => sum + (cv.stock || 0), 0);
   }
   
-  // For simple variations, calculate from first variation's options
+  // For simple variations, sum stock across all enabled variation options
   if (doc.variations?.length) {
-    const firstVariation = doc.variations[0];
-    return firstVariation.options.reduce((sum: number, opt: any) => sum + (opt.stock || 0), 0);
+    return doc.variations.reduce((variationTotal: number, variation: any) => {
+      if (!variation?.options?.length) return variationTotal;
+      const optionStock = variation.options.reduce((sum: number, opt: any) => {
+        // Only count options that are enabled (or missing flag) to avoid inflating stock
+        if (opt?.enabled === false) return sum;
+        return sum + (opt?.stock || 0);
+      }, 0);
+      return variationTotal + optionStock;
+    }, 0);
   }
   
   return doc.stock;
