@@ -205,7 +205,7 @@ export const getProductFilters = async (req: Request, res: Response) => {
         { $group: { _id: "$category", count: { $sum: 1 } } },
       ]),
       Product.aggregate([
-        { $match: { ...baseQuery, productType: { $ne: null, $ne: "" } } },
+        { $match: { ...baseQuery, productType: { $nin: [null, ""] } } },
         { $group: { _id: "$productType", count: { $sum: 1 } } },
       ]),
       Product.distinct("tags", baseQuery),

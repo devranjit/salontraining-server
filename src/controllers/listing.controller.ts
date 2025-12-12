@@ -3,7 +3,7 @@ import { Listing } from "../models/Listing";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
 
-export const createListing = async (req: Request, res: Response) => {
+export const createListing = async (req: any, res: Response) => {
   try {
     const now = new Date();
     const publishDate = req.body.publishDate
@@ -39,7 +39,7 @@ export const createListing = async (req: Request, res: Response) => {
 };
 
 
-export const updateListing = async (req: Request, res: Response) => {
+export const updateListing = async (req: any, res: Response) => {
   try {
     await expireOutdatedListings();
 
@@ -86,7 +86,7 @@ export const updateListing = async (req: Request, res: Response) => {
   }
 };
 
-export const getListing = async (req: Request, res: Response) => {
+export const getListing = async (req: any, res: Response) => {
   try {
     await expireOutdatedListings();
 
@@ -136,7 +136,7 @@ export const deleteListing = async (req: any, res: Response) => {
   }
 };
 
-export const myListings = async (req: Request, res: Response) => {
+export const myListings = async (req: any, res: Response) => {
   try {
     await expireOutdatedListings();
 
