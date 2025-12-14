@@ -24,6 +24,7 @@ import {
   getFeaturedTrainers,
   adminDeleteTrainer,
   adminChangeTrainerOwner,
+  getTrainerSuggestions,
 } from "../controllers/trainer.controller";
 
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
@@ -71,6 +72,7 @@ router.post("/upload", protect, upload.single("file"), async (req, res) => {
 
 
 /* ---------------------- PUBLIC ROUTES ---------------------- */
+router.get("/suggestions", getTrainerSuggestions);
 router.get("/all", getAllTrainers);              // GET /api/trainers/all?search=&category=&city=&sort=
 router.get("/featured", getFeaturedTrainers);    // GET /api/trainers/featured?limit=4
 

@@ -25,6 +25,7 @@ import {
   toggleBlogFeatured,
   getBlogPendingCounts,
   adminChangeBlogOwner,
+  getBlogSuggestions,
 } from "../controllers/blog.controller";
 
 const router = Router();
@@ -32,6 +33,7 @@ const router = Router();
 /* ---------------------- PUBLIC ROUTES ---------------------- */
 router.get("/", getBlogs);
 router.get("/featured", getFeaturedBlogs);
+router.get("/suggestions", getBlogSuggestions);
 
 /* ---------------------- USER ROUTES ---------------------- */
 router.post("/", protect, recaptchaMiddleware("submit_blog"), createBlog);

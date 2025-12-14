@@ -3,6 +3,25 @@ import { Blog } from "../models/Blog";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
 
+const normalizeCategory = (value?: string) => (value || "").trim();
+const normalizeTags = (tags: any): string[] => {
+  let list: string[] = [];
+  if (Array.isArray(tags)) list = tags as string[];
+  else if (typeof tags === "string") list = tags.split(",").map((t) => t.trim());
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const tag of list) {
+    const val = (tag || "").trim();
+    if (!val) continue;
+    const key = val.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(val);
+    if (cleaned.length >= 5) break;
+  }
+  return cleaned;
+};
+
 // ===============================
 // PUBLIC — Get All Blogs (Published)
 // ===============================
@@ -102,6 +121,39 @@ export const getFeaturedBlogs = async (req: Request, res: Response) => {
 };
 
 // ===============================
+// PUBLIC — Suggestions (categories & tags)
+// ===============================
+export const getBlogSuggestions = async (req: Request, res: Response) => {
+  try {
+    const { search = "" } = req.query;
+    const regex = new RegExp(String(search), "i");
+
+    const [categoriesRaw, tagsRaw] = await Promise.all([
+      Blog.distinct("category", { category: { $ne: "" } }),
+      Blog.distinct("tags"),
+    ]);
+
+    const unique = (arr: string[]) =>
+      Array.from(
+        new Set(
+          arr
+            .map((v) => (v || "").trim())
+            .filter(Boolean)
+            .filter((v) => regex.test(v))
+        )
+      );
+
+    return res.json({
+      success: true,
+      categories: unique(categoriesRaw as string[]),
+      tags: unique(tagsRaw as string[]),
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ===============================
 // PUBLIC — Get Single Blog (by ID or slug)
 // ===============================
 export const getSingleBlog = async (req: Request, res: Response) => {
@@ -153,9 +205,14 @@ export const getSingleBlog = async (req: Request, res: Response) => {
 // ===============================
 export const createBlog = async (req: any, res: Response) => {
   try {
+    const category = normalizeCategory(req.body.category);
+    const tags = normalizeTags(req.body.tags);
+
     const blog = await Blog.create({
       owner: req.user.id,
       ...req.body,
+      category,
+      tags,
       status: "pending",
     });
 
@@ -193,10 +250,13 @@ export const getMyBlogs = async (req: Request, res: Response) => {
 export const updateMyBlog = async (req: Request, res: Response) => {
   try {
     const userId = req.user?._id || req.user?.id;
+    const updatePayload: any = { ...req.body, status: "pending" };
+    if (req.body.category !== undefined) updatePayload.category = normalizeCategory(req.body.category);
+    if (req.body.tags !== undefined) updatePayload.tags = normalizeTags(req.body.tags);
     
     const blog = await Blog.findOneAndUpdate(
       { _id: req.params.id, owner: userId },
-      { ...req.body, status: "pending" }, // Reset to pending after edit
+      updatePayload, // Reset to pending after edit
       { new: true }
     );
 
@@ -319,9 +379,13 @@ export const adminGetBlogById = async (req: Request, res: Response) => {
 // ===============================
 export const adminUpdateBlog = async (req: Request, res: Response) => {
   try {
+    const updatePayload: any = { ...req.body };
+    if (req.body.category !== undefined) updatePayload.category = normalizeCategory(req.body.category);
+    if (req.body.tags !== undefined) updatePayload.tags = normalizeTags(req.body.tags);
+
     const blog = await Blog.findByIdAndUpdate(
       req.params.id,
-      { ...req.body },
+      updatePayload,
       { new: true }
     );
 

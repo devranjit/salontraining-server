@@ -55,9 +55,13 @@ const eventSchema = new mongoose.Schema(
     // Categories & Tags
     category: {
       type: String,
-      enum: ["hair_show", "beauty_expo", "trade_show", "workshop", "seminar", "competition", "networking", "other"],
+      trim: true,
+      default: "",
     },
-    tags: [String],
+    tags: {
+      type: [String],
+      default: [],
+    },
 
     // Media
     gallery: [

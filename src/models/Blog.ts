@@ -17,10 +17,13 @@ const blogSchema = new mongoose.Schema(
     // Categories & Tags
     category: {
       type: String,
-      enum: ["hair", "makeup", "skincare", "nails", "business", "trends", "tutorials", "industry_news", "other"],
-      default: "other",
+      trim: true,
+      default: "",
     },
-    tags: [String],
+    tags: {
+      type: [String],
+      default: [],
+    },
 
     // Media
     gallery: [

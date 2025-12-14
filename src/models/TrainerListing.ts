@@ -34,10 +34,17 @@ const trainerListingSchema = new mongoose.Schema(
       lng: Number,
     },
 
-    // Categories
+    // Categories (free-form, type-ahead)
     category: {
       type: String,
-      enum: ["hair", "makeup", "barber", "nails", "skin", "educator", "other"],
+      trim: true,
+      default: "",
+    },
+
+    // Tags (max 5 enforced in controller)
+    tags: {
+      type: [String],
+      default: [],
     },
 
     // Media

@@ -228,6 +228,17 @@ const productSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+
+    // Social media links for the product/brand
+    socialLinks: {
+      type: [
+        {
+          platform: { type: String, trim: true },
+          url: { type: String, trim: true },
+        },
+      ],
+      default: [],
+    },
     
     // Brand
     brand: { type: String },

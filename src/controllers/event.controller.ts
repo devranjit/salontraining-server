@@ -3,6 +3,25 @@ import { Event } from "../models/Event";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
 
+const normalizeCategory = (value?: string) => (value || "").trim();
+const normalizeTags = (tags: any): string[] => {
+  let list: string[] = [];
+  if (Array.isArray(tags)) list = tags as string[];
+  else if (typeof tags === "string") list = tags.split(",").map((t) => t.trim());
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const tag of list) {
+    const val = (tag || "").trim();
+    if (!val) continue;
+    const key = val.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(val);
+    if (cleaned.length >= 5) break;
+  }
+  return cleaned;
+};
+
 // ===============================
 // PUBLIC — Get All Events (Published)
 // ===============================
@@ -163,40 +182,73 @@ export const getSingleEvent = async (req: Request, res: Response) => {
 // ===============================
 export const createEvent = async (req: any, res: Response) => {
   try {
-    const {
-      eventType, // "show" or "event"
-      title,
-      description,
-      email,
-      phone,
-      website,
-      facebook,
-      instagram,
-      twitter,
-      tiktok,
-      youtube,
-      videoUrl,
-      startDate,
-      endDate,
-      allDay,
-      startTime,
-      endTime,
-      address,
-      city,
-      state,
-      zip,
-      country,
-      coords,
-      venue,
-      category,
-      tags,
-      gallery,
-      thumbnail,
-      specialOffers,
-      ticketUrl,
-      ticketPrice,
-      capacity,
+    const body: {
+      eventType?: string;
+      title?: string;
+      description?: string;
+      email?: string;
+      phone?: string;
+      website?: string;
+      facebook?: string;
+      instagram?: string;
+      twitter?: string;
+      tiktok?: string;
+      youtube?: string;
+      videoUrl?: string;
+      startDate?: string;
+      endDate?: string;
+      allDay?: boolean;
+      startTime?: string;
+      endTime?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      zip?: string;
+      country?: string;
+      coords?: any;
+      venue?: string;
+      category?: string;
+      tags?: any;
+      gallery?: any[];
+      thumbnail?: any;
+      specialOffers?: string;
+      ticketUrl?: string;
+      ticketPrice?: string;
+      capacity?: number;
     } = req.body;
+
+    const eventType = body.eventType;
+    const title = body.title;
+    const description = body.description;
+    const email = body.email;
+    const phone = body.phone;
+    const website = body.website;
+    const facebook = body.facebook;
+    const instagram = body.instagram;
+    const twitter = body.twitter;
+    const tiktok = body.tiktok;
+    const youtube = body.youtube;
+    const videoUrl = body.videoUrl;
+    const startDate = body.startDate;
+    const endDate = body.endDate;
+    const allDay = body.allDay;
+    const startTime = body.startTime;
+    const endTime = body.endTime;
+    const address = body.address;
+    const city = body.city;
+    const state = body.state;
+    const zip = body.zip;
+    const country = body.country;
+    const coords = body.coords;
+    const venue = body.venue;
+    const category = normalizeCategory(body.category);
+    const tags = normalizeTags(body.tags);
+    const gallery = body.gallery;
+    const thumbnail = body.thumbnail;
+    const specialOffers = body.specialOffers;
+    const ticketUrl = body.ticketUrl;
+    const ticketPrice = body.ticketPrice;
+    const capacity = body.capacity;
 
     if (!title || !description || !email || !startDate) {
       return res.status(400).json({
@@ -308,7 +360,14 @@ export const updateMyEvent = async (req: any, res: Response) => {
     }
 
     // Don't allow changing status
-    const { status, featured, adminNotes, ...updateData } = req.body;
+    const { status, featured, adminNotes, ...updateData }: any = req.body;
+
+    if (updateData.category !== undefined) {
+      updateData.category = normalizeCategory(updateData.category);
+    }
+    if (updateData.tags !== undefined) {
+      updateData.tags = normalizeTags(updateData.tags);
+    }
 
     // If event was published, set back to pending for review
     if (event.status === "published") {
@@ -425,7 +484,14 @@ export const adminGetEventById = async (req: Request, res: Response) => {
 // ===============================
 export const adminUpdateEvent = async (req: Request, res: Response) => {
   try {
-    const updateData = { ...req.body };
+    const updateData: any = { ...req.body };
+
+    if (updateData.category !== undefined) {
+      updateData.category = normalizeCategory(updateData.category);
+    }
+    if (updateData.tags !== undefined) {
+      updateData.tags = normalizeTags(updateData.tags);
+    }
 
     // Convert date strings to Date objects
     if (updateData.startDate) {
@@ -654,6 +720,39 @@ export const getEventPendingCounts = async (req: Request, res: Response) => {
       counts: {
         events: pendingCount,
       },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// PUBLIC — Suggestions (categories & tags)
+// ===============================
+export const getEventSuggestions = async (req: Request, res: Response) => {
+  try {
+    const { search = "" } = req.query;
+    const regex = new RegExp(String(search), "i");
+
+    const [categoriesRaw, tagsRaw] = await Promise.all([
+      Event.distinct("category", { category: { $ne: "" } }),
+      Event.distinct("tags"),
+    ]);
+
+    const unique = (arr: string[]) =>
+      Array.from(
+        new Set(
+          arr
+            .map((v) => (v || "").trim())
+            .filter(Boolean)
+            .filter((v) => regex.test(v))
+        )
+      );
+
+    return res.json({
+      success: true,
+      categories: unique(categoriesRaw as string[]),
+      tags: unique(tagsRaw as string[]),
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

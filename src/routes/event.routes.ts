@@ -22,6 +22,7 @@ import {
   toggleFeaturedEvent,
   getEventPendingCounts,
   adminChangeEventOwner,
+  getEventSuggestions,
 } from "../controllers/event.controller";
 
 const router = Router();
@@ -34,6 +35,8 @@ router.get("/", getEvents);
 
 // Get featured events/shows
 router.get("/featured", getFeaturedEvents);
+// Suggestions for categories/tags
+router.get("/suggestions", getEventSuggestions);
 
 // Get single event by ID
 router.get("/:id", getSingleEvent);

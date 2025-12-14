@@ -3,6 +3,32 @@ import { TrainerListing } from "../models/TrainerListing";
 import User from "../models/User";
 import mongoose from "mongoose";
 
+const normalizeCategory = (value?: string) => {
+  const trimmed = (value || "").trim();
+  return trimmed;
+};
+
+const normalizeTags = (tags: any): string[] => {
+  let list: string[] = [];
+  if (Array.isArray(tags)) list = tags as string[];
+  else if (typeof tags === "string") {
+    list = tags.split(",").map((t) => t.trim());
+  }
+
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const tag of list) {
+    const val = (tag || "").trim();
+    if (!val) continue;
+    const key = val.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(val);
+    if (cleaned.length >= 5) break;
+  }
+  return cleaned;
+};
+
 // Helper to normalize user id across decoded tokens
 const currentUserId = (req: any) => req.user?._id || req.user?.id;
 
@@ -11,9 +37,14 @@ const currentUserId = (req: any) => req.user?._id || req.user?.id;
 // ===============================
 export const createTrainer = async (req: any, res: Response) => {
   try {
+    const category = normalizeCategory(req.body.category);
+    const tags = normalizeTags(req.body.tags);
+
     const listing = await TrainerListing.create({
       owner: req.user.id,
       ...req.body,
+      category,
+      tags,
       status: "pending",
     });
 
@@ -81,8 +112,16 @@ export async function requestTrainerUpdate(req: any, res: Response) {
       return res.status(404).json({ success: false, message: "Trainer not found" });
     }
 
+    const pendingBody = req.body?.changes || req.body || {};
+    if (pendingBody.category !== undefined) {
+      pendingBody.category = normalizeCategory(pendingBody.category);
+    }
+    if (pendingBody.tags !== undefined) {
+      pendingBody.tags = normalizeTags(pendingBody.tags);
+    }
+
     listing.pendingAction = "update";
-    listing.pendingChanges = req.body?.changes || req.body || {};
+    listing.pendingChanges = pendingBody;
     listing.pendingReason = req.body?.reason || "";
     listing.pendingRequestedAt = new Date();
     listing.statusBeforePending = listing.status;
@@ -218,6 +257,34 @@ export const rejectTrainer = async (req: Request, res: Response) => {
 };
 
 // ===============================
+// ADMIN — Update Trainer
+// ===============================
+export async function updateTrainerAdmin(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const category = normalizeCategory(req.body.category);
+    const tags = req.body.tags !== undefined ? normalizeTags(req.body.tags) : undefined;
+
+    const updatePayload: any = {
+      ...req.body,
+    };
+
+    if (req.body.category !== undefined) updatePayload.category = category;
+    if (tags !== undefined) updatePayload.tags = tags;
+
+    const listing = await TrainerListing.findByIdAndUpdate(id, updatePayload, { new: true });
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Trainer not found" });
+    }
+
+    return res.json({ success: true, listing });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ===============================
 // ADMIN — Set Pending
 // ===============================
 export async function setPendingTrainer(req: Request, res: Response) {
@@ -289,34 +356,6 @@ export async function publishTrainer(req: Request, res: Response) {
     return res.status(500).json({ success: false, message: err.message });
   }
 }
-
-
-// ===============================
-// ADMIN — Update Trainer
-// ===============================
-export const updateTrainerAdmin = async (req: Request, res: Response) => {
-  try {
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body },
-      { new: true }
-    );
-
-    if (!listing) {
-      return res.status(404).json({
-        success: false,
-        message: "Trainer not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      listing,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
 
 
 // ===============================
@@ -502,6 +541,41 @@ export async function getFeaturedTrainers(req: Request, res: Response) {
       .limit(Number(limit));
 
     return res.json({ success: true, listings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ===============================
+// PUBLIC — Suggestions (categories & tags)
+// ===============================
+export async function getTrainerSuggestions(req: Request, res: Response) {
+  try {
+    const { search = "" } = req.query;
+    const regex = new RegExp(String(search), "i");
+
+    const [categoriesRaw, tagsRaw] = await Promise.all([
+      TrainerListing.distinct("category", { category: { $ne: "" } }),
+      TrainerListing.distinct("tags"),
+    ]);
+
+    const categories = (categoriesRaw as string[])
+      .map((c) => (c || "").trim())
+      .filter(Boolean)
+      .filter((c) => regex.test(c));
+
+    const tags = (tagsRaw as string[])
+      .map((t) => (t || "").trim())
+      .filter(Boolean)
+      .filter((t) => regex.test(t));
+
+    const unique = (arr: string[]) => Array.from(new Set(arr));
+
+    return res.json({
+      success: true,
+      categories: unique(categories),
+      tags: unique(tags),
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

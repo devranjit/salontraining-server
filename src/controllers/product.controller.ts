@@ -46,6 +46,16 @@ const normalizeBundleGroups = (groups?: any[]) => {
     .filter((g) => g.items.length > 0);
 };
 
+const normalizeSocialLinks = (links?: any[]) => {
+  if (!Array.isArray(links)) return [];
+  return links
+    .map((link) => ({
+      platform: typeof link?.platform === "string" ? link.platform.trim() : "",
+      url: typeof link?.url === "string" ? link.url.trim() : "",
+    }))
+    .filter((link) => link.platform || link.url);
+};
+
 const buildSlug = (name?: string) =>
   name
     ? name
@@ -283,12 +293,12 @@ export const getSingleProduct = async (req: Request, res: Response) => {
 
     if (isValidObjectId) {
       // Try to find by ID first
-      product = await Product.findById(id).populate(basePopulate);
+      product = await Product.findById(id).select("+socialLinks").populate(basePopulate);
     }
 
     // If not found by ID, try slug
     if (!product) {
-      product = await Product.findOne({ slug: id }).populate(basePopulate);
+      product = await Product.findOne({ slug: id }).select("+socialLinks").populate(basePopulate);
     }
 
     if (!product) {
@@ -345,6 +355,7 @@ export const createUserProduct = async (req: any, res: Response) => {
       tags,
       couponCode,
       shopUrl,
+      socialLinks,
     } = req.body;
 
     if (!name || !price) {
@@ -365,6 +376,7 @@ export const createUserProduct = async (req: any, res: Response) => {
       tags: tags || [],
       couponCode: couponCode?.trim() || undefined,
       shopUrl: shopUrl?.trim() || undefined,
+      socialLinks: normalizeSocialLinks(socialLinks),
       owner: req.user.id,
       created_by: req.user.id,
       status: "pending",
@@ -398,6 +410,7 @@ export const getMyProducts = async (req: any, res: Response) => {
 
     const [products, total] = await Promise.all([
       Product.find(query)
+        .select("+socialLinks")
         .populate("category", "name")
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -468,6 +481,7 @@ export const updateMyProduct = async (req: any, res: Response) => {
       tags,
       couponCode,
       shopUrl,
+      socialLinks,
     } = req.body;
 
     const updateData: any = {};
@@ -482,6 +496,7 @@ export const updateMyProduct = async (req: any, res: Response) => {
     if (tags !== undefined) updateData.tags = tags;
     if (couponCode !== undefined) updateData.couponCode = couponCode?.trim() || undefined;
     if (shopUrl !== undefined) updateData.shopUrl = shopUrl?.trim() || undefined;
+    if (socialLinks !== undefined) updateData.socialLinks = normalizeSocialLinks(socialLinks);
 
     // If product was published, set back to pending for review
     if (product.status === "published") {
@@ -762,6 +777,7 @@ export const adminGetAllProducts = async (req: any, res: Response) => {
 
     const [products, total] = await Promise.all([
       Product.find(query)
+        .select("+socialLinks")
         .populate("category", "name")
         .populate("owner", "name email")
         .sort({ createdAt: -1 })
@@ -851,6 +867,7 @@ export const createProduct = async (req: any, res: Response) => {
       metaTitle,
       metaDescription,
       shopUrl,
+      socialLinks,
     } = req.body;
 
     if (!name || price === undefined) {
@@ -918,6 +935,7 @@ export const createProduct = async (req: any, res: Response) => {
       metaDescription,
       productSource: "store",  // Admin-created products are store catalog products
       shopUrl: shopUrl?.trim(),
+      socialLinks: normalizeSocialLinks(socialLinks),
     });
 
     // Populate grouped products if any
@@ -945,6 +963,9 @@ export const updateProduct = async (req: any, res: Response) => {
 
     // Determine product structure based on update data
     const updateData = { ...req.body };
+    if (updateData.socialLinks !== undefined) {
+      updateData.socialLinks = normalizeSocialLinks(updateData.socialLinks);
+    }
     if (updateData.bundleGroups) {
       updateData.bundleGroups = normalizeBundleGroups(updateData.bundleGroups);
       updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
@@ -1231,6 +1252,7 @@ export const getProductWithGroupedDetails = async (req: Request, res: Response) 
     const { id } = req.params;
     
     const product = await Product.findById(id)
+      .select("+socialLinks")
       .populate("category", "name")
       .populate("owner", "name email")
       .populate("groupedProducts.product", "name slug price salePrice images stock productFormat variations")
