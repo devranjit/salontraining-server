@@ -21,3 +21,4 @@ router.delete("/admin/:id", protect, adminOnly, deleteProVerification);
 
 export default router;
 
+

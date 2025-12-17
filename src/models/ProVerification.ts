@@ -22,3 +22,4 @@ const ProVerification = mongoose.models.ProVerification || mongoose.model("ProVe
 
 export default ProVerification;
 
+
