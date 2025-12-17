@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Product from "../models/Product";
 import Category from "../models/Category";
 import { moveToRecycleBin } from "../services/recycleBinService";
+import StoreTag from "../models/StoreTag";
 import { User } from "../models/User";
 
 const ROLE_CONTROL_ACTIONS: Record<string, string[]> = {
@@ -264,6 +265,157 @@ export const getFeaturedProducts = async (req: Request, res: Response) => {
       .limit(Number(limit));
 
     return res.json({ success: true, products });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ADMIN: STORE TAXONOMY (categories & tags for store catalog)
+export const getStoreTaxonomy = async (_req: Request, res: Response) => {
+  try {
+    const matchStage = { productSource: "store" };
+
+    const [categoryAgg, tagAgg, manualTags, allCategories] = await Promise.all([
+      Product.aggregate([
+        { $match: { ...matchStage, category: { $ne: null } } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+      ]),
+      Product.aggregate([
+        { $match: matchStage },
+        { $unwind: "$tags" },
+        { $match: { tags: { $nin: [null, ""] } } },
+        { $group: { _id: "$tags", count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+      ]),
+      StoreTag.find().lean(),
+      Category.find().select("_id name").sort({ name: 1 }).lean(),
+    ]);
+
+    const categoryCountMap = new Map<string, number>();
+    categoryAgg.forEach((c: any) => {
+      if (c?._id) categoryCountMap.set(String(c._id), c.count || 0);
+    });
+
+    const categoriesWithCounts = (allCategories || []).map((c: any) => ({
+      _id: c._id,
+      name: c.name,
+      count: categoryCountMap.get(String(c._id)) || 0,
+    }));
+
+    const mergedTags = (() => {
+      const aggMap = new Map<string, number>();
+      (tagAgg || []).forEach((t: any) => {
+        if (t?._id) aggMap.set(String(t._id).trim(), t.count || 0);
+      });
+      const names = new Set<string>();
+      aggMap.forEach((_v, k) => names.add(k));
+      (manualTags || []).forEach((t: any) => {
+        if (t?.name) names.add(String(t.name).trim());
+      });
+      return Array.from(names)
+        .map((name) => ({
+          name,
+          count: aggMap.get(name) || 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    })();
+
+    return res.json({
+      success: true,
+      categories: categoriesWithCounts,
+      tags: mergedTags,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ADMIN: RENAME A STORE TAG (affects store products)
+export const renameStoreTag = async (req: Request, res: Response) => {
+  try {
+    const { oldTag, newTag } = req.body as { oldTag?: string; newTag?: string };
+
+    if (!oldTag || !newTag) {
+      return res.status(400).json({ success: false, message: "oldTag and newTag are required" });
+    }
+
+    const trimmedNew = newTag.trim();
+    const trimmedOld = oldTag.trim();
+
+    if (!trimmedNew || !trimmedOld) {
+      return res.status(400).json({ success: false, message: "Tags cannot be empty" });
+    }
+
+    if (trimmedNew === trimmedOld) {
+      return res.json({ success: true, modified: 0, message: "No changes applied" });
+    }
+
+    const result = await Product.updateMany(
+      { productSource: "store", tags: trimmedOld },
+      {
+        $addToSet: { tags: trimmedNew },
+        $pull: { tags: trimmedOld },
+      }
+    );
+
+    await StoreTag.findOneAndUpdate(
+      { name: trimmedOld },
+      { name: trimmedNew },
+      { upsert: true, new: true }
+    );
+
+    return res.json({
+      success: true,
+      matched: result.matchedCount ?? 0,
+      modified: result.modifiedCount ?? 0,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ADMIN: DELETE A STORE TAG (removes from all store products)
+export const deleteStoreTag = async (req: Request, res: Response) => {
+  try {
+    const { tag } = req.params;
+
+    if (!tag) {
+      return res.status(400).json({ success: false, message: "Tag is required" });
+    }
+
+    const result = await Product.updateMany(
+      { productSource: "store" },
+      { $pull: { tags: tag } }
+    );
+
+    await StoreTag.deleteOne({ name: tag });
+
+    return res.json({
+      success: true,
+      matched: result.matchedCount ?? 0,
+      modified: result.modifiedCount ?? 0,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ADMIN: CREATE A STORE TAG (manual)
+export const createStoreTag = async (req: Request, res: Response) => {
+  try {
+    const { tag } = req.body as { tag?: string };
+    const name = tag?.trim();
+    if (!name) {
+      return res.status(400).json({ success: false, message: "Tag is required" });
+    }
+
+    const existing = await StoreTag.findOne({ name });
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Tag already exists" });
+    }
+
+    const created = await StoreTag.create({ name });
+    return res.json({ success: true, tag: created });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }

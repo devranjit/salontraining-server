@@ -30,6 +30,37 @@ export const createCategory = async (req: Request, res: Response) => {
 };
 
 // ---------------------------------------
+// UPDATE CATEGORY NAME (Admin Only)
+// ---------------------------------------
+export const updateCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ success: false, message: "Name is required" });
+    }
+
+    const exists = await Category.findOne({ name, _id: { $ne: id } });
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "Category already exists",
+      });
+    }
+
+    const updated = await Category.findByIdAndUpdate(id, { name }, { new: true });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    return res.json({ success: true, category: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------------------
 // GET ALL CATEGORIES (Public)
 // ---------------------------------------
 export const getCategories = async (req: Request, res: Response) => {

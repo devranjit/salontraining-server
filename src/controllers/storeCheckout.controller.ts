@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Order from "../models/Order";
 import Product from "../models/Product";
 import Coupon from "../models/Coupon";
+import ProVerification from "../models/ProVerification";
 import { getStripeClient } from "../services/stripeClient";
 import { prepareCartPricing, CartItemInput } from "../services/cartPricing.service";
 import {
@@ -109,6 +110,20 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
   try {
     if (!req.user) {
       return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    // Require professional verification for store purchases (bypass for admins/managers)
+    if (!["admin", "manager"].includes(req.user.role)) {
+      const verification = await ProVerification.findOne({ user: req.user._id });
+      if (!verification || verification.status !== "approved") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Professional verification required to purchase from the ST Shop. Please submit your name and license for approval.",
+          requiresVerification: true,
+          status: verification?.status || "none",
+        });
+      }
     }
 
     const {

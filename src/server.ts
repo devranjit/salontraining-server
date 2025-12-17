@@ -30,6 +30,7 @@ import couponRoutes from "./routes/coupon.routes";
 import storeCheckoutRoutes from "./routes/storeCheckout.routes";
 import systemLogRoutes from "./routes/systemLog.routes";
 import formSubmissionRoutes from "./routes/formSubmission.routes";
+import proVerificationRoutes from "./routes/proVerification.routes";
 import { ensureEmailDefaults } from "./services/emailService";
 import "./lib/cloudinary";
 
@@ -160,6 +161,7 @@ app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/forms", formSubmissionRoutes);
+app.use("/api/pro-verification", proVerificationRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

@@ -39,6 +39,10 @@ import {
   // Debug & Fix
   getProductSourceStats,
   fixProductSource,
+  getStoreTaxonomy,
+  renameStoreTag,
+  deleteStoreTag,
+  createStoreTag,
 } from "../controllers/product.controller";
 import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
 import { recaptchaMiddleware } from "../middleware/recaptcha";
@@ -78,6 +82,10 @@ router.get("/admin/search-for-grouping", protect, managerOrAdmin, searchProducts
 router.post("/admin", protect, managerOrAdmin, createProduct);
 router.put("/admin/:id", protect, managerOrAdmin, updateProduct);
 router.delete("/admin/:id", protect, managerOrAdmin, deleteProduct);
+router.get("/admin/store-taxonomy", protect, managerOrAdmin, getStoreTaxonomy);
+router.post("/admin/store-tags", protect, managerOrAdmin, createStoreTag);
+router.patch("/admin/store-tags/rename", protect, managerOrAdmin, renameStoreTag);
+router.delete("/admin/store-tags/:tag", protect, managerOrAdmin, deleteStoreTag);
 
 // Status management
 router.patch("/admin/:id/approve", protect, managerOrAdmin, approveProduct);
