@@ -20,3 +20,4 @@ router.patch("/admin/:id/status", protect, adminOnly, updateProVerificationStatu
 router.delete("/admin/:id", protect, adminOnly, deleteProVerification);
 
 export default router;
+

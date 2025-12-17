@@ -21,3 +21,4 @@ const proVerificationSchema = new mongoose.Schema(
 const ProVerification = mongoose.models.ProVerification || mongoose.model("ProVerification", proVerificationSchema);
 
 export default ProVerification;
+

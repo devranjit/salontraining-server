@@ -11,3 +11,4 @@ const StoreTag =
   mongoose.models.StoreTag || mongoose.model("StoreTag", storeTagSchema);
 
 export default StoreTag;
+
