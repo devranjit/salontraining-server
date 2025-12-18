@@ -9,7 +9,12 @@ export const submitProVerification = async (req: AuthRequest, res: Response) => 
       return res.status(401).json({ success: false, message: "Authentication required" });
     }
 
-    const { name, license } = req.body as { name?: string; license?: string };
+    const { name, license, phone, salonOrSchool } = req.body as {
+      name?: string;
+      license?: string;
+      phone?: string;
+      salonOrSchool?: string;
+    };
 
     if (!name || !license) {
       return res.status(400).json({ success: false, message: "Name and license are required" });
@@ -39,6 +44,8 @@ export const submitProVerification = async (req: AuthRequest, res: Response) => 
 
     verification.name = name.trim();
     verification.license = license.trim();
+    verification.phone = (phone || "").trim();
+    verification.salonOrSchool = (salonOrSchool || "").trim();
     verification.status = "pending";
     verification.reviewedBy = null;
     verification.reviewedAt = null;
@@ -150,5 +157,6 @@ export const deleteProVerification = async (req: AuthRequest, res: Response) => 
     return res.status(500).json({ success: false, message: "Failed to delete verification" });
   }
 };
+
 
 
