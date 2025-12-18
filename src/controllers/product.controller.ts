@@ -508,6 +508,8 @@ export const createUserProduct = async (req: any, res: Response) => {
       couponCode,
       shopUrl,
       socialLinks,
+      contactEmail,
+      contactPhone,
     } = req.body;
 
     if (!name || !price) {
@@ -528,6 +530,8 @@ export const createUserProduct = async (req: any, res: Response) => {
       tags: tags || [],
       couponCode: couponCode?.trim() || undefined,
       shopUrl: shopUrl?.trim() || undefined,
+      contactEmail: contactEmail?.trim() || undefined,
+      contactPhone: contactPhone?.trim() || undefined,
       socialLinks: normalizeSocialLinks(socialLinks),
       owner: req.user.id,
       created_by: req.user.id,
@@ -634,6 +638,8 @@ export const updateMyProduct = async (req: any, res: Response) => {
       couponCode,
       shopUrl,
       socialLinks,
+      contactEmail,
+      contactPhone,
     } = req.body;
 
     const updateData: any = {};
@@ -648,6 +654,8 @@ export const updateMyProduct = async (req: any, res: Response) => {
     if (tags !== undefined) updateData.tags = tags;
     if (couponCode !== undefined) updateData.couponCode = couponCode?.trim() || undefined;
     if (shopUrl !== undefined) updateData.shopUrl = shopUrl?.trim() || undefined;
+    if (contactEmail !== undefined) updateData.contactEmail = contactEmail?.trim() || undefined;
+    if (contactPhone !== undefined) updateData.contactPhone = contactPhone?.trim() || undefined;
     if (socialLinks !== undefined) updateData.socialLinks = normalizeSocialLinks(socialLinks);
 
     // If product was published, set back to pending for review
@@ -1020,6 +1028,8 @@ export const createProduct = async (req: any, res: Response) => {
       metaDescription,
       shopUrl,
       socialLinks,
+      contactEmail,
+      contactPhone,
     } = req.body;
 
     if (!name || price === undefined) {
@@ -1088,6 +1098,8 @@ export const createProduct = async (req: any, res: Response) => {
       productSource: "store",  // Admin-created products are store catalog products
       shopUrl: shopUrl?.trim(),
       socialLinks: normalizeSocialLinks(socialLinks),
+      contactEmail: contactEmail?.trim() || undefined,
+      contactPhone: contactPhone?.trim() || undefined,
     });
 
     // Populate grouped products if any
@@ -1406,7 +1418,7 @@ export const getProductWithGroupedDetails = async (req: Request, res: Response) 
     const product = await Product.findById(id)
       .select("+socialLinks")
       .populate("category", "name")
-      .populate("owner", "name email")
+      .populate("owner", "name email phone")
       .populate("groupedProducts.product", "name slug price salePrice images stock productFormat variations")
       .populate("bundleGroups.items.product", "name slug price salePrice images stock productFormat variations")
       .populate("relatedProducts", "name slug price salePrice images")

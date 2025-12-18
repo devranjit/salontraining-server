@@ -229,6 +229,10 @@ const productSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Optional contact info shown on listings
+    contactEmail: { type: String, trim: true },
+    contactPhone: { type: String, trim: true },
+
     // Social media links for the product/brand
     socialLinks: {
       type: [
