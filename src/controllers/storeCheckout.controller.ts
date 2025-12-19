@@ -147,6 +147,20 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       });
     }
 
+    // Determine frontend base URL (prefer request origin to preserve localStorage domain)
+    const originHeader = req.headers.origin;
+    let frontendBase = FRONTEND_URL;
+    if (originHeader) {
+      try {
+        const originUrl = new URL(originHeader);
+        if (/\.?salontraining\.com$/i.test(originUrl.hostname)) {
+          frontendBase = originUrl.origin.replace(/\/+$/, "");
+        }
+      } catch {
+        // ignore malformed origin, fall back to env FRONTEND_URL
+      }
+    }
+
     // Prepare cart pricing
     const cartSummary = await prepareCartPricing(items);
     const { normalizedItems, subtotal, requiresShipping, stockAdjustments, totalWeightKg } = cartSummary;
@@ -281,8 +295,8 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       customer_email: contactEmail || req.user.email,
       client_reference_id: order._id.toString(),
       line_items: lineItems,
-      success_url: `${FRONTEND_URL}/checkout/success`,
-      cancel_url: `${FRONTEND_URL}/checkout?cancelled=1`,
+      success_url: `${frontendBase}/checkout/success`,
+      cancel_url: `${frontendBase}/checkout?cancelled=1`,
       metadata: {
         orderId: order._id.toString(),
         userId: req.user._id.toString(),
