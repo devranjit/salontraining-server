@@ -281,7 +281,7 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       customer_email: contactEmail || req.user.email,
       client_reference_id: order._id.toString(),
       line_items: lineItems,
-      success_url: `${FRONTEND_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order._id}`,
+      success_url: `${FRONTEND_URL}/checkout/success`,
       cancel_url: `${FRONTEND_URL}/checkout?cancelled=1`,
       metadata: {
         orderId: order._id.toString(),
