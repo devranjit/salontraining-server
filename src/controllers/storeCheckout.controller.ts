@@ -295,7 +295,7 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       customer_email: contactEmail || req.user.email,
       client_reference_id: order._id.toString(),
       line_items: lineItems,
-      success_url: `${frontendBase}/checkout/success#${order._id}`,
+      success_url: `${frontendBase}/checkout/success/${order._id}`,
       cancel_url: `${frontendBase}/checkout?cancelled=1`,
       metadata: {
         orderId: order._id.toString(),
@@ -317,12 +317,11 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    // Store session ID on order
-    order.payment = {
-      ...order.payment,
-      stripeSessionId: session.id,
-    };
-    await order.save();
+    // Store session ID on order (use updateOne for reliable subdocument update)
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { "payment.stripeSessionId": session.id } }
+    );
 
     return res.json({
       success: true,
