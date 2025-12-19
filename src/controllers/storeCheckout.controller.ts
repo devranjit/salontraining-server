@@ -295,7 +295,7 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       customer_email: contactEmail || req.user.email,
       client_reference_id: order._id.toString(),
       line_items: lineItems,
-      success_url: `${frontendBase}/checkout/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order._id}`,
+      success_url: `${frontendBase}/checkout/success?oid=${order._id}`,
       cancel_url: `${frontendBase}/checkout?cancelled=1`,
       metadata: {
         orderId: order._id.toString(),
@@ -477,25 +477,18 @@ async function handleExpiredSession(session: Stripe.Checkout.Session) {
 // Verify checkout session (for frontend confirmation)
 export const verifyCheckoutSession = async (req: Request, res: Response) => {
   try {
-    const { sessionId, orderId } = req.query;
+    // Support both old format (sessionId + orderId) and new format (just oid)
+    const orderId = req.query.oid || req.query.orderId;
+    let sessionId = req.query.sessionId as string | undefined;
 
-    if (!sessionId || !orderId) {
+    if (!orderId) {
       return res.status(400).json({
         success: false,
-        message: "Session ID and Order ID are required",
+        message: "Order ID is required",
       });
     }
 
-    const stripe = getStripeClient();
-    const session = await stripe.checkout.sessions.retrieve(sessionId as string);
-
-    if (session.metadata?.orderId !== orderId) {
-      return res.status(400).json({
-        success: false,
-        message: "Session does not match order",
-      });
-    }
-
+    // Find the order first
     const order = await Order.findById(orderId)
       .populate("user", "name email")
       .populate("items.product", "name slug images");
@@ -504,6 +497,29 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: "Order not found",
+      });
+    }
+
+    // Get session ID from order if not provided in query (WAF may strip long params)
+    if (!sessionId && order.payment?.stripeSessionId) {
+      sessionId = order.payment.stripeSessionId;
+    }
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Session information not found",
+      });
+    }
+
+    const stripe = getStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    // Verify the session belongs to this order
+    if (session.metadata?.orderId !== orderId && session.client_reference_id !== orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Session does not match order",
       });
     }
 
