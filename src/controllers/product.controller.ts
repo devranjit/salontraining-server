@@ -533,6 +533,7 @@ export const createUserProduct = async (req: any, res: Response) => {
       contactEmail: contactEmail?.trim() || undefined,
       contactPhone: contactPhone?.trim() || undefined,
       socialLinks: normalizeSocialLinks(socialLinks),
+      slug: buildSlug(name),
       owner: req.user.id,
       created_by: req.user.id,
       status: "pending",
