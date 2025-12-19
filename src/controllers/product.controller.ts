@@ -1463,6 +1463,7 @@ export const searchProductsForGrouping = async (req: any, res: Response) => {
     const query: any = {
       status: { $in: ["published", "approved", "pending", "draft"] },
       productStructure: { $in: ["simple", "variable"] }, // Can't nest grouped products
+      stock: { $gt: 0 }, // Only show products with available stock
     };
 
     if (search) {

@@ -17,7 +17,10 @@ import {
 
 type AuthRequest = Request & { user?: any };
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL = (
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "production" ? "https://salontraining.com" : "http://localhost:5173")
+).replace(/\/+$/, "");
 
 interface CheckoutSessionPayload {
   items: CartItemInput[];

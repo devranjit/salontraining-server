@@ -6,6 +6,28 @@ type VariationSelection = {
   priceAdjustment?: number;
 };
 
+type GroupedProductSnapshot = {
+  product: mongoose.Types.ObjectId;
+  name?: string;
+  quantity: number;
+  price?: number;
+  salePrice?: number;
+  productFormat?: string;
+  image?: string;
+};
+
+type BundleGroupItemSnapshot = GroupedProductSnapshot & {
+  optional?: boolean;
+  discountPercent?: number;
+};
+
+type BundleGroupSnapshot = {
+  name?: string;
+  pricingMode?: string;
+  discountPercent?: number;
+  items: BundleGroupItemSnapshot[];
+};
+
 type ShippingHistory = {
   status: string;
   note?: string;
@@ -37,6 +59,9 @@ export interface IOrderItem {
   unitPrice: number;
   subtotal: number;
   selectedVariations?: VariationSelection[];
+  variationSummary?: string;
+  groupedProducts?: GroupedProductSnapshot[];
+  bundleGroups?: BundleGroupSnapshot[];
   downloadUrl?: string;
 }
 
@@ -117,6 +142,38 @@ const orderItemSchema = new Schema<IOrderItem>(
     unitPrice: { type: Number, required: true },
     subtotal: { type: Number, required: true },
     selectedVariations: [variationSelectionSchema],
+    variationSummary: String,
+    groupedProducts: [
+      {
+        product: { type: Schema.Types.ObjectId, ref: "Product" },
+        name: String,
+        quantity: { type: Number, default: 1 },
+        price: Number,
+        salePrice: Number,
+        productFormat: String,
+        image: String,
+      },
+    ],
+    bundleGroups: [
+      {
+        name: String,
+        pricingMode: String,
+        discountPercent: Number,
+        items: [
+          {
+            product: { type: Schema.Types.ObjectId, ref: "Product" },
+            name: String,
+            quantity: { type: Number, default: 1 },
+            price: Number,
+            salePrice: Number,
+            productFormat: String,
+            image: String,
+            optional: Boolean,
+            discountPercent: Number,
+          },
+        ],
+      },
+    ],
     downloadUrl: String,
   },
   { _id: false }

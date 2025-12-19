@@ -13,6 +13,28 @@ export interface CartItemInput {
   selectedOptions?: VariationSelectionInput[];
 }
 
+export interface GroupedProductSelection {
+  product: mongoose.Types.ObjectId;
+  name?: string;
+  quantity: number;
+  price?: number;
+  salePrice?: number;
+  productFormat?: string;
+  image?: string;
+}
+
+export interface BundleGroupItemSelection extends GroupedProductSelection {
+  optional?: boolean;
+  discountPercent?: number;
+}
+
+export interface BundleGroupSelection {
+  name?: string;
+  pricingMode?: string;
+  discountPercent?: number;
+  items: BundleGroupItemSelection[];
+}
+
 export interface NormalizedCartItem {
   product: mongoose.Types.ObjectId;
   owner: mongoose.Types.ObjectId;
@@ -26,6 +48,9 @@ export interface NormalizedCartItem {
   unitPrice: number;
   subtotal: number;
   selectedVariations?: Array<{ label: string; optionName: string; priceAdjustment: number }>;
+  variationSummary?: string;
+  groupedProducts?: GroupedProductSelection[];
+  bundleGroups?: BundleGroupSelection[];
   downloadUrl?: string;
   weightKg?: number;
 }
@@ -64,8 +89,8 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
     _id: { $in: productIds },
     status: { $in: ["approved", "published"] },
   })
-    .populate("groupedProducts.product", "price salePrice productFormat weight images owner")
-    .populate("bundleGroups.items.product", "price salePrice productFormat weight images owner")
+    .populate("groupedProducts.product", "name slug price salePrice productFormat weight images owner")
+    .populate("bundleGroups.items.product", "name slug price salePrice productFormat weight images owner")
     .lean();
 
   const normalizedItems: NormalizedCartItem[] = [];
@@ -114,7 +139,13 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
       });
     }
 
+    const variationSummary =
+      normalizedSelections.length > 0
+        ? normalizedSelections.map((v) => `${v.label}: ${v.optionName}`).join(" / ")
+        : undefined;
+
     const isBundle = product.productStructure === "bundle";
+    const isGrouped = product.productStructure === "grouped";
 
     // Compute bundle price when bundleGroups exist; otherwise use base+variations
     const computeGroupTotal = (items: any[], mode: string, groupDiscount: number) => {
@@ -132,12 +163,41 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
       return subtotal;
     };
 
+    // Snapshot grouped/bundle composition for the order
+    let groupedProductsSnapshot: GroupedProductSelection[] | undefined;
+    let bundleGroupsSnapshot: BundleGroupSelection[] | undefined;
+
     let unitPrice: number;
     if (isBundle && Array.isArray(product.bundleGroups) && product.bundleGroups.length > 0) {
       const groupTotals = product.bundleGroups.map((g: any) =>
-        computeGroupTotal(g.items || [], g.pricingMode || product.bundlePricingMode || "calculated", g.discountPercent || 0)
+        computeGroupTotal(
+          g.items || [],
+          g.pricingMode || product.bundlePricingMode || "calculated",
+          g.discountPercent || 0
+        )
       );
       const aggregate = groupTotals.reduce((a, b) => a + b, 0);
+      // Snapshot for order display
+      bundleGroupsSnapshot = product.bundleGroups.map((g: any, idx: number) => ({
+        name: g.name,
+        pricingMode: g.pricingMode || product.bundlePricingMode || "calculated",
+        discountPercent: g.discountPercent,
+        items: (g.items || []).map((it: any) => {
+          const prod = it.product || {};
+          return {
+            product: prod._id,
+            name: prod.name,
+            quantity: it.quantity ?? 1,
+            price: prod.price,
+            salePrice: prod.salePrice,
+            productFormat: prod.productFormat,
+            image: prod.images?.[0]?.url,
+            optional: it.optional,
+            discountPercent: it.discountPercent,
+          };
+        }),
+      }));
+
       // If top-level bundlePricingMode is discounted, apply bundleDiscount; if fixed and price > 0, prefer that
       const topMode = product.bundlePricingMode || "calculated";
       if (topMode === "fixed" && product.price > 0) {
@@ -147,6 +207,26 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
       } else {
         unitPrice = Number(aggregate);
       }
+    } else if (isGrouped && Array.isArray(product.groupedProducts) && product.groupedProducts.length > 0) {
+      // Grouped products: price is sum of child products with sale/price applied
+      groupedProductsSnapshot = product.groupedProducts.map((g: any) => {
+        const prod = g.product || {};
+        const base = Number(prod.salePrice ?? prod.price ?? 0);
+        return {
+          product: prod._id,
+          name: prod.name,
+          quantity: g.quantity ?? 1,
+          price: prod.price,
+          salePrice: prod.salePrice,
+          productFormat: prod.productFormat,
+          image: prod.images?.[0]?.url,
+        } as GroupedProductSelection;
+      });
+      const groupedTotal = groupedProductsSnapshot.reduce(
+        (sum, gp) => sum + (Number(gp.salePrice ?? gp.price ?? 0) * (gp.quantity ?? 1)),
+        0
+      );
+      unitPrice = Number(groupedTotal);
     } else {
       const basePrice =
         product.salePrice && product.salePrice < product.price ? product.salePrice : product.price;
@@ -175,6 +255,9 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
       unitPrice,
       subtotal: itemSubtotal,
       selectedVariations: normalizedSelections,
+      variationSummary,
+      groupedProducts: groupedProductsSnapshot,
+      bundleGroups: bundleGroupsSnapshot,
       downloadUrl: product.productFormat === "digital" ? product.downloadUrl : undefined,
       weightKg,
     });
