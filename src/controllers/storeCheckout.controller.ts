@@ -5,6 +5,7 @@ import Order from "../models/Order";
 import Product from "../models/Product";
 import Coupon from "../models/Coupon";
 import ProVerification from "../models/ProVerification";
+import User from "../models/User";
 import { getStripeClient } from "../services/stripeClient";
 import { prepareCartPricing, CartItemInput } from "../services/cartPricing.service";
 import {
@@ -14,6 +15,259 @@ import {
   CoordinatesInput,
   ShippingSelectionInput,
 } from "../services/shipping.service";
+import { dispatchEmailEvent } from "../services/emailService";
+import { getMailClient } from "../services/mailClient";
+
+async function sendOrderConfirmation(order: any) {
+  try {
+    if (order.confirmationEmailSent) return;
+    const user = await User.findById(order.user).select("name email phone");
+    const to = order.contactEmail || user?.email;
+    if (!to) return;
+
+    const formatMoney = (n: any) => Number(n || 0).toFixed(2);
+    const shippingAddress = order.shippingAddress
+      ? [
+          order.shippingAddress.fullName,
+          order.shippingAddress.line1,
+          order.shippingAddress.line2,
+          [order.shippingAddress.city, order.shippingAddress.state, order.shippingAddress.postalCode]
+            .filter(Boolean)
+            .join(", "),
+          order.shippingAddress.country,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : null;
+
+    // Pre-render items HTML since email service doesn't support Mustache blocks
+    const itemsArray = (order.items || []).map((item: any) => ({
+      name: item.name,
+      quantity: item.quantity,
+      price: formatMoney(item.unitPrice),
+      subtotal: formatMoney(item.subtotal),
+      variations: item.variationSummary || undefined,
+    }));
+
+    const itemsHtml = itemsArray
+      .map(
+        (it: any) => `
+          <tr>
+            <td colspan="2" style="padding:16px 0;border-bottom:1px solid #f1f5f9;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="vertical-align:top;width:60px;">
+                    <div style="width:56px;height:56px;background:#f8fafc;border-radius:10px;text-align:center;line-height:56px;">
+                      <span style="font-size:24px;">📦</span>
+                    </div>
+                  </td>
+                  <td style="vertical-align:top;padding-left:14px;">
+                    <p style="margin:0;font-size:15px;font-weight:600;color:#0f172a;">${it.name}</p>
+                    ${it.variations ? `<p style="margin:4px 0 0;font-size:12px;color:#64748b;">${it.variations}</p>` : ""}
+                    <p style="margin:6px 0 0;font-size:13px;color:#64748b;">
+                      <span style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:500;">Qty: ${it.quantity}</span>
+                      <span style="color:#94a3b8;margin:0 6px;">×</span>
+                      <span>$${it.price} each</span>
+                    </p>
+                  </td>
+                  <td style="vertical-align:top;text-align:right;width:90px;">
+                    <p style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">$${it.subtotal}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const discountHtml = order.discountTotal
+      ? `<tr>
+          <td style="padding:6px 0;font-size:14px;color:#f97316;">Discount</td>
+          <td style="padding:6px 0;font-size:14px;color:#f97316;text-align:right;font-weight:600;">−$${formatMoney(order.discountTotal)}</td>
+        </tr>`
+      : "";
+
+    const orderData = {
+      id: order._id.toString(),
+      number: order.orderNumber || order._id.toString(),
+      date: order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : undefined,
+      itemCount: Array.isArray(order.items)
+        ? order.items.reduce((sum: number, i: any) => sum + (Number(i.quantity) || 0), 0)
+        : 0,
+      items: itemsArray,
+      itemsHtml,
+      discountHtml,
+      totals: {
+        items: formatMoney(order.itemsTotal),
+        shipping: formatMoney(order.shippingCost),
+        discount: order.discountTotal ? formatMoney(order.discountTotal) : undefined,
+        grand: formatMoney(order.grandTotal),
+      },
+      shippingName: order.shippingAddress?.fullName,
+      shippingAddress,
+      shippingMethod:
+        order.shippingOptionLabel ||
+        order.shippingMethod ||
+        (order.shippingStatus === "not_required" ? "Digital delivery" : "Standard"),
+      contactEmail: order.contactEmail || user?.email,
+      contactPhone: order.contactPhone || user?.phone,
+      notes: order.notes || undefined,
+    };
+
+    let sent = false;
+    try {
+      const result = await dispatchEmailEvent("order.paid", {
+        to,
+        data: {
+          user: { name: user?.name || "there" },
+          order: orderData,
+        },
+      });
+      sent = !(result as any)?.skipped;
+    } catch (err) {
+      console.error("Dispatch order.paid email failed, will attempt fallback:", err);
+    }
+
+    // Fallback: send directly if trigger/template is missing or disabled
+    if (!sent) {
+      try {
+        const mailClient = getMailClient();
+        const subject = `Order Confirmed #${orderData.number} - SalonTraining`;
+        const html = `
+          <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+            <!-- Header -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:16px 16px 0 0;">
+              <tr>
+                <td style="padding:32px 28px 28px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td>
+                        <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#94a3b8;">Order Confirmation</p>
+                        <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Thanks for your order!</h1>
+                      </td>
+                      <td style="text-align:right;vertical-align:top;">
+                        <div style="display:inline-block;background:#f97316;border-radius:24px;padding:6px 14px;">
+                          <span style="color:#ffffff;font-size:12px;font-weight:600;">CONFIRMED</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                  <p style="margin:16px 0 0;color:#cbd5e1;font-size:14px;">Hi <strong style="color:#ffffff;">${orderData.shippingName || user?.name || "there"}</strong>, we've received your order.</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;background:rgba(255,255,255,0.1);border-radius:10px;">
+                    <tr>
+                      <td style="padding:12px 16px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                          <tr>
+                            <td style="color:#94a3b8;font-size:12px;text-transform:uppercase;">Order Number</td>
+                            <td style="text-align:right;color:#94a3b8;font-size:12px;text-transform:uppercase;">Date</td>
+                          </tr>
+                          <tr>
+                            <td style="color:#ffffff;font-size:16px;font-weight:700;padding-top:4px;">${orderData.number}</td>
+                            <td style="text-align:right;color:#ffffff;font-size:14px;padding-top:4px;">${orderData.date || ""}</td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Items -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+              <tr>
+                <td style="padding:28px;">
+                  <h2 style="margin:0 0 20px;font-size:15px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.08em;border-bottom:2px solid #0f172a;padding-bottom:10px;display:inline-block;">Your Items</h2>
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0">${orderData.itemsHtml}</table>
+
+                  <!-- Totals -->
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);border-radius:12px;">
+                    <tr>
+                      <td style="padding:20px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                          <tr><td style="padding:6px 0;font-size:14px;color:#64748b;">Subtotal</td><td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">$${orderData.totals.items}</td></tr>
+                          <tr><td style="padding:6px 0;font-size:14px;color:#64748b;">Shipping</td><td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">$${orderData.totals.shipping}</td></tr>
+                          ${orderData.discountHtml}
+                          <tr><td colspan="2" style="padding-top:12px;border-top:2px dashed #cbd5e1;"></td></tr>
+                          <tr><td style="padding:8px 0;font-size:18px;font-weight:700;color:#0f172a;">Total Paid</td><td style="padding:8px 0;font-size:22px;font-weight:700;color:#0f172a;text-align:right;">$${orderData.totals.grand}</td></tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Shipping & Contact -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+              <tr>
+                <td style="padding:0 28px 28px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td width="48%" style="vertical-align:top;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                          <tr>
+                            <td style="padding:18px;">
+                              <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📍 Shipping To</p>
+                              <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">${orderData.shippingName || ""}</p>
+                              <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">${orderData.shippingAddress || "Digital delivery"}</p>
+                              <p style="margin:10px 0 0;font-size:12px;color:#64748b;">
+                                <span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:4px;font-weight:500;">${orderData.shippingMethod}</span>
+                              </p>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                      <td width="4%"></td>
+                      <td width="48%" style="vertical-align:top;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                          <tr>
+                            <td style="padding:18px;">
+                              <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📧 Contact Details</p>
+                              <p style="margin:0;font-size:13px;color:#475569;"><strong>Email:</strong> ${orderData.contactEmail}</p>
+                              ${orderData.contactPhone ? `<p style="margin:6px 0 0;font-size:13px;color:#475569;"><strong>Phone:</strong> ${orderData.contactPhone}</p>` : ""}
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Footer -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+              <tr>
+                <td style="padding:24px 28px;text-align:center;">
+                  <p style="margin:0 0 8px;font-size:14px;color:#475569;">We'll send you shipping updates as your order progresses.</p>
+                  <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Just reply to this email — we're here to help!</p>
+                </td>
+              </tr>
+            </table>
+          </div>
+        `;
+        await mailClient.transporter.sendMail({
+          from: mailClient.from,
+          to,
+          subject,
+          html,
+        });
+        sent = true;
+      } catch (fallbackErr) {
+        console.error("Fallback order confirmation email failed:", fallbackErr);
+      }
+    }
+
+    if (sent) {
+      order.confirmationEmailSent = true;
+      await order.save();
+    }
+  } catch (err) {
+    console.error("Failed to send order confirmation email:", err);
+  }
+}
 
 type AuthRequest = Request & { user?: any };
 
@@ -450,6 +704,8 @@ async function handleSuccessfulPayment(session: Stripe.Checkout.Session) {
     );
   }
 
+  await sendOrderConfirmation(order);
+
   console.log(`Order ${orderId} payment completed successfully`);
 }
 
@@ -520,6 +776,29 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
         success: false,
         message: "Session does not match order",
       });
+    }
+
+    // If webhook was missed, mark paid and send confirmation best-effort
+    if (session.payment_status === "paid" && order.paymentStatus !== "paid") {
+      order.paymentStatus = "paid";
+      order.fulfillmentStatus = "processing";
+      order.payment = {
+        ...order.payment,
+        status: "paid",
+        stripePaymentIntentId: (session as any).payment_intent as string,
+        paidAt: new Date(),
+      };
+      if (order.shippingStatus !== "not_required") {
+        order.shippingTimeline.push({
+          status: "processing",
+          note: "Payment received, preparing for shipment",
+          createdBy: order.user,
+        });
+      }
+      await order.save();
+      await sendOrderConfirmation(order);
+    } else if (session.payment_status === "paid" && !order.confirmationEmailSent) {
+      await sendOrderConfirmation(order);
     }
 
     return res.json({

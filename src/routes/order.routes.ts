@@ -10,6 +10,9 @@ import {
   adminUpdateOrderStatus,
   adminAddShippingEvent,
   adminProcessRefund,
+  adminDeleteOrder,
+  adminBulkDeleteOrders,
+  adminBulkUpdateStatus,
 } from "../controllers/order.controller";
 
 const router = Router();
@@ -20,10 +23,17 @@ router.get("/my", protect, getMyOrders);
 
 // Admin / manager routes
 router.get("/admin/list", protect, managerOrAdmin, getAdminOrders);
+
+// Bulk operations (must be before :id routes)
+router.post("/admin/bulk-delete", protect, managerOrAdmin, adminBulkDeleteOrders);
+router.patch("/admin/bulk-status", protect, managerOrAdmin, adminBulkUpdateStatus);
+
+// Single order admin operations
 router.get("/admin/:id", protect, managerOrAdmin, adminGetOrder);
 router.patch("/admin/:id/status", protect, managerOrAdmin, adminUpdateOrderStatus);
 router.post("/admin/:id/shipping-event", protect, managerOrAdmin, adminAddShippingEvent);
 router.patch("/admin/:id/refund", protect, managerOrAdmin, adminProcessRefund);
+router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteOrder);
 
 // Customer routes that rely on :id must be last
 router.post("/:id/refund-request", protect, requestRefund);

@@ -123,3 +123,70 @@ export const listEmailLogs = async (req: Request, res: Response) => {
   res.json({ success: true, logs });
 };
 
+// Reset a single template to its default from code
+export const resetTemplateToDefault = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  const template = await EmailTemplate.findById(id);
+  if (!template) {
+    return res.status(404).json({ success: false, message: "Template not found" });
+  }
+
+  const defaultEvent = EMAIL_EVENTS.find((e) => e.key === template.key);
+  if (!defaultEvent) {
+    return res.status(400).json({
+      success: false,
+      message: "No default template found for this key",
+    });
+  }
+
+  template.subject = defaultEvent.defaultSubject;
+  template.html = defaultEvent.defaultHtml;
+  template.label = defaultEvent.label;
+  template.description = defaultEvent.description;
+  template.updatedBy = (req as any).user?.id;
+  await template.save();
+
+  res.json({
+    success: true,
+    message: `Template "${template.key}" reset to default`,
+    template,
+  });
+};
+
+// Reset ALL templates to their defaults from code
+export const resetAllTemplatesToDefault = async (req: Request, res: Response) => {
+  const results: { key: string; status: string }[] = [];
+
+  for (const eventConfig of EMAIL_EVENTS) {
+    const template = await EmailTemplate.findOne({ key: eventConfig.key });
+    if (template) {
+      template.subject = eventConfig.defaultSubject;
+      template.html = eventConfig.defaultHtml;
+      template.label = eventConfig.label;
+      template.description = eventConfig.description;
+      template.updatedBy = (req as any).user?.id;
+      await template.save();
+      results.push({ key: eventConfig.key, status: "reset" });
+    } else {
+      await EmailTemplate.create({
+        key: eventConfig.key,
+        label: eventConfig.label,
+        description: eventConfig.description,
+        subject: eventConfig.defaultSubject,
+        html: eventConfig.defaultHtml,
+        text: "",
+        enabled: true,
+        updatedBy: (req as any).user?.id,
+      });
+      results.push({ key: eventConfig.key, status: "created" });
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Reset ${results.length} templates to defaults`,
+    results,
+  });
+};
+

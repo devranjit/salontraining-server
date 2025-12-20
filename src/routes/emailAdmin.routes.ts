@@ -10,6 +10,8 @@ import {
   updateEmailTrigger,
   listEmailLogs,
   bootstrapEmailTemplates,
+  resetTemplateToDefault,
+  resetAllTemplatesToDefault,
 } from "../controllers/email.controller";
 
 const router = Router();
@@ -20,6 +22,8 @@ router.get("/templates", listEmailTemplates);
 router.post("/templates", createEmailTemplate);
 router.put("/templates/:id", updateEmailTemplate);
 router.post("/templates/:id/test", triggerTestEmail);
+router.post("/templates/:id/reset", resetTemplateToDefault);
+router.post("/templates/reset-all", resetAllTemplatesToDefault);
 router.post("/bootstrap", bootstrapEmailTemplates);
 
 router.get("/triggers", listEmailTriggers);

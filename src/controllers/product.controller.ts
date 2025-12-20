@@ -644,6 +644,7 @@ export const updateMyProduct = async (req: any, res: Response) => {
     } = req.body;
 
     const updateData: any = {};
+    const unsetFields: any = {};
     
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
@@ -653,7 +654,14 @@ export const updateMyProduct = async (req: any, res: Response) => {
     if (productType !== undefined) updateData.productType = productType;
     if (images !== undefined) updateData.images = images;
     if (tags !== undefined) updateData.tags = tags;
-    if (couponCode !== undefined) updateData.couponCode = couponCode?.trim() || undefined;
+    if (couponCode !== undefined) {
+      const trimmed = typeof couponCode === "string" ? couponCode.trim() : "";
+      if (trimmed) {
+        updateData.couponCode = trimmed;
+      } else {
+        unsetFields.couponCode = 1; // allow clearing coupon by sending blank
+      }
+    }
     if (shopUrl !== undefined) updateData.shopUrl = shopUrl?.trim() || undefined;
     if (contactEmail !== undefined) updateData.contactEmail = contactEmail?.trim() || undefined;
     if (contactPhone !== undefined) updateData.contactPhone = contactPhone?.trim() || undefined;
@@ -664,11 +672,13 @@ export const updateMyProduct = async (req: any, res: Response) => {
       updateData.status = "pending";
     }
 
-    const updated = await Product.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
+    const updateOps: any = {};
+    if (Object.keys(updateData).length > 0) updateOps.$set = updateData;
+    if (Object.keys(unsetFields).length > 0) updateOps.$unset = unsetFields;
+
+    const updated = await Product.findByIdAndUpdate(req.params.id, updateOps, {
+      new: true,
+    });
 
     return res.json({
       success: true,
@@ -1128,41 +1138,64 @@ export const updateProduct = async (req: any, res: Response) => {
 
     // Determine product structure based on update data
     const updateData = { ...req.body };
+    const unsetFields: any = {};
+    const setData: any = {};
+
+    // Normalize coupon handling: allow clearing by sending empty/whitespace
+    if (updateData.couponCode !== undefined) {
+      const trimmed = typeof updateData.couponCode === "string" ? updateData.couponCode.trim() : "";
+      if (trimmed) {
+        setData.couponCode = trimmed;
+      } else {
+        unsetFields.couponCode = 1;
+      }
+      delete updateData.couponCode;
+    }
     if (updateData.socialLinks !== undefined) {
-      updateData.socialLinks = normalizeSocialLinks(updateData.socialLinks);
+      setData.socialLinks = normalizeSocialLinks(updateData.socialLinks);
+      delete updateData.socialLinks;
     }
     if (updateData.bundleGroups) {
-      updateData.bundleGroups = normalizeBundleGroups(updateData.bundleGroups);
-      updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
+      setData.bundleGroups = normalizeBundleGroups(updateData.bundleGroups);
+      setData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
+      delete updateData.bundleGroups;
     }
     
     // Slug handling: only change slug when an explicit slug is provided.
     // This avoids breaking existing product URLs when a product name changes.
     if (updateData.slug) {
-      updateData.slug = buildSlug(updateData.slug);
+      setData.slug = buildSlug(updateData.slug);
+      delete updateData.slug;
     } else if (!product.slug) {
       // Backfill slug only if the product somehow has none
-      updateData.slug = buildSlug(product.name);
+      setData.slug = buildSlug(product.name);
     }
 
     if (Array.isArray(updateData.bundleGroups) && updateData.bundleGroups.length > 0) {
-      updateData.productStructure = "bundle";
-      updateData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
+      setData.productStructure = "bundle";
+      setData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
     } else if (updateData.groupedProducts?.length > 0) {
       // Pure grouped products (no bundle groups)
-      updateData.productStructure = "grouped";
-      updateData.bundlePricingMode = undefined;
-      updateData.bundleGroups = [];
+      setData.productStructure = "grouped";
+      setData.bundlePricingMode = undefined;
+      setData.bundleGroups = [];
     } else if (updateData.variations?.length > 0 || updateData.combinedVariations?.length > 0) {
-      updateData.productStructure = "variable";
+      setData.productStructure = "variable";
     } else if (updateData.productStructure === undefined) {
       // Keep existing or default to simple
-      updateData.productStructure = product.productStructure || "simple";
+      setData.productStructure = product.productStructure || "simple";
     }
+
+    // Remaining primitive fields go to $set
+    Object.assign(setData, updateData);
+
+    const updateOps: any = {};
+    if (Object.keys(setData).length > 0) updateOps.$set = setData;
+    if (Object.keys(unsetFields).length > 0) updateOps.$unset = unsetFields;
 
     const updated = await Product.findByIdAndUpdate(
       req.params.id,
-      updateData,
+      updateOps,
       { new: true }
     ).populate("groupedProducts.product", "name slug price salePrice images stock")
      .populate("bundleGroups.items.product", "name slug price salePrice images stock")

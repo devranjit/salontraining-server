@@ -34,10 +34,21 @@ export const calculateShippingQuote = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("calculateShippingQuote error:", error);
-    return res.status(500).json({
+    const message = error instanceof Error ? error.message : "Unable to calculate shipping";
+    const knownIssues = [
+      "One or more products are no longer available",
+      "Invalid product selections",
+      "Invalid variation selection",
+      "Invalid option",
+      "Insufficient stock",
+    ];
+    const isKnown = knownIssues.some((k) => message.toLowerCase().includes(k.toLowerCase()));
+    if (!isKnown) {
+      console.error("calculateShippingQuote error:", error);
+    }
+    return res.status(isKnown ? 400 : 500).json({
       success: false,
-      message: error instanceof Error ? error.message : "Unable to calculate shipping",
+      message,
     });
   }
 };
@@ -179,6 +190,7 @@ export const validateShippingSelectionController = async (req: Request, res: Res
     });
   }
 };
+
 
 
 

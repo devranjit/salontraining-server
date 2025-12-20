@@ -7,6 +7,11 @@ export type EmailEventKey =
   | "auth.registration-locked"
   | "auth.account-unlocked"
   | "admin.recycle-bin-warning"
+  | "order.paid"
+  | "order.shipped"
+  | "order.out-for-delivery"
+  | "order.delivered"
+  | "order.refunded"
   | "listing.submitted"
   | "listing.approved"
   | "listing.rejected"
@@ -136,6 +141,150 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
     `,
   },
   {
+    key: "order.paid",
+    label: "Order Paid (Store Catalog)",
+    description: "Sent to buyers after successful catalog checkout payment.",
+    defaultSubject: "Order Confirmed #{{order.number}} - SalonTraining",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header with Brand -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#94a3b8;">Order Confirmation</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Thanks for your order!</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:#f97316;border-radius:24px;padding:6px 14px;">
+                      <span style="color:#ffffff;font-size:12px;font-weight:600;letter-spacing:0.05em;">CONFIRMED</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;">
+                <tr>
+                  <td style="color:#cbd5e1;font-size:14px;">
+                    Hi <strong style="color:#ffffff;">{{user.name}}</strong>, we've received your order and it's being processed.
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;background:rgba(255,255,255,0.1);border-radius:10px;padding:12px 16px;">
+                <tr>
+                  <td style="padding:12px 16px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Order Number</td>
+                        <td style="text-align:right;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Date</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#ffffff;font-size:16px;font-weight:700;padding-top:4px;">{{order.number}}</td>
+                        <td style="text-align:right;color:#ffffff;font-size:14px;padding-top:4px;">{{order.date}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Order Items Section -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <h2 style="margin:0 0 20px;font-size:15px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.08em;border-bottom:2px solid #0f172a;padding-bottom:10px;display:inline-block;">Your Items</h2>
+              
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                {{order.itemsHtml}}
+              </table>
+
+              <!-- Order Summary Box -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);border-radius:12px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:6px 0;font-size:14px;color:#64748b;">Subtotal</td>
+                        <td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">\${{order.totals.items}}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:6px 0;font-size:14px;color:#64748b;">Shipping</td>
+                        <td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">\${{order.totals.shipping}}</td>
+                      </tr>
+                      {{order.discountHtml}}
+                      <tr>
+                        <td colspan="2" style="padding-top:12px;border-top:2px dashed #cbd5e1;"></td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;font-size:18px;font-weight:700;color:#0f172a;">Total Paid</td>
+                        <td style="padding:8px 0;font-size:22px;font-weight:700;color:#0f172a;text-align:right;">\${{order.totals.grand}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Shipping & Contact Info -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:0 28px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td width="48%" style="vertical-align:top;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                      <tr>
+                        <td style="padding:18px;">
+                          <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">
+                            <span style="margin-right:6px;">📍</span> Shipping To
+                          </p>
+                          <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">{{order.shippingName}}</p>
+                          <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">{{order.shippingAddress}}</p>
+                          <p style="margin:10px 0 0;font-size:12px;color:#64748b;">
+                            <span style="background:#dbeafe;color:#1e40af;padding:3px 8px;border-radius:4px;font-weight:500;">{{order.shippingMethod}}</span>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="4%"></td>
+                  <td width="48%" style="vertical-align:top;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                      <tr>
+                        <td style="padding:18px;">
+                          <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">
+                            <span style="margin-right:6px;">📧</span> Contact Details
+                          </p>
+                          <p style="margin:0;font-size:13px;color:#475569;"><strong>Email:</strong> {{order.contactEmail}}</p>
+                          <p style="margin:6px 0 0;font-size:13px;color:#475569;"><strong>Phone:</strong> {{order.contactPhone}}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">We'll send you shipping updates as your order progresses.</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Just reply to this email — we're here to help!</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
     key: "listing.submitted",
     label: "Listing Submitted",
     description: "Sent to listing owners when they submit a new listing.",
@@ -230,6 +379,366 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
       </ul>
       <p style="margin-top:16px;">{{membership.invoiceCta}}</p>
       <p style="color:#94a3b8;font-size:13px;margin-top:24px;">Need help? Reply to this email.</p>
+    `,
+  },
+  {
+    key: "order.shipped",
+    label: "Order Shipped",
+    description: "Sent when an order is marked as shipped with tracking info.",
+    defaultSubject: "Your order #{{order.number}} has shipped! 📦",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#bfdbfe;">Shipping Update</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Your order is on its way!</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:#ffffff;border-radius:24px;padding:6px 14px;">
+                      <span style="color:#1e40af;font-size:12px;font-weight:600;">SHIPPED</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0;color:#dbeafe;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, great news! Your order has been shipped.</p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Order Info -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f9ff;border-radius:12px;border:1px solid #bae6fd;">
+                <tr>
+                  <td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="color:#0369a1;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Order Number</td>
+                        <td style="text-align:right;color:#0369a1;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;">Shipped Date</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#0c4a6e;font-size:18px;font-weight:700;padding-top:4px;">{{order.number}}</td>
+                        <td style="text-align:right;color:#0c4a6e;font-size:14px;padding-top:4px;">{{order.shippedDate}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Tracking Info -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📍 Tracking Information</p>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Carrier</span>
+                        </td>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:600;">{{order.carrier}}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Tracking Number</span>
+                        </td>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#1e40af;font-size:14px;font-weight:600;">{{order.trackingNumber}}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;">
+                          <span style="color:#64748b;font-size:13px;">Estimated Delivery</span>
+                        </td>
+                        <td style="padding:8px 0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:600;">{{order.estimatedDelivery}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Items Summary -->
+              <div style="margin-top:20px;">
+                <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📦 Items in this shipment</p>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  {{order.itemsHtml}}
+                </table>
+              </div>
+
+              <!-- Shipping Address -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:18px;">
+                    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">🏠 Delivering To</p>
+                    <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">{{order.shippingName}}</p>
+                    <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">{{order.shippingAddress}}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">We'll notify you when your package is delivered.</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Just reply to this email.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.out-for-delivery",
+    label: "Order Out for Delivery",
+    description: "Sent when order is out for delivery.",
+    defaultSubject: "Your order #{{order.number}} is out for delivery! 🚚",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#e9d5ff;">Delivery Update</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">It's arriving today!</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:#ffffff;border-radius:24px;padding:6px 14px;">
+                      <span style="color:#7c3aed;font-size:12px;font-weight:600;">OUT FOR DELIVERY</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0;color:#e9d5ff;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, your package is on a delivery vehicle and will arrive today!</p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Order Info -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#faf5ff;border-radius:12px;border:1px solid #e9d5ff;">
+                <tr>
+                  <td style="padding:20px;text-align:center;">
+                    <p style="margin:0;font-size:48px;">🚚</p>
+                    <p style="margin:12px 0 0;font-size:16px;font-weight:700;color:#7c3aed;">Order #{{order.number}}</p>
+                    <p style="margin:4px 0 0;font-size:14px;color:#6b7280;">Expected today, {{order.deliveryDate}}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Delivery Address -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:18px;">
+                    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📍 Delivery Address</p>
+                    <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">{{order.shippingName}}</p>
+                    <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">{{order.shippingAddress}}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">Make sure someone is available to receive your package.</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Just reply to this email.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.delivered",
+    label: "Order Delivered",
+    description: "Sent when order has been delivered.",
+    defaultSubject: "Your order #{{order.number}} has been delivered! 📦",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#ea580c 0%,#f97316 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#fed7aa;">Delivery Complete</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Your order has arrived!</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:#ffffff;border-radius:24px;padding:6px 14px;">
+                      <span style="color:#ea580c;font-size:12px;font-weight:600;">DELIVERED</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0;color:#fed7aa;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, your package has been successfully delivered!</p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Order Info -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fff7ed;border-radius:12px;border:1px solid #fed7aa;">
+                <tr>
+                  <td style="padding:20px;text-align:center;">
+                    <p style="margin:0;font-size:48px;">📦</p>
+                    <p style="margin:12px 0 0;font-size:16px;font-weight:700;color:#ea580c;">Order #{{order.number}}</p>
+                    <p style="margin:4px 0 0;font-size:14px;color:#6b7280;">Delivered on {{order.deliveredDate}}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Items Delivered -->
+              <div style="margin-top:20px;">
+                <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📦 Items Delivered</p>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  {{order.itemsHtml}}
+                </table>
+              </div>
+
+              <!-- Delivered To -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:18px;">
+                    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📍 Delivered To</p>
+                    <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">{{order.shippingName}}</p>
+                    <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">{{order.shippingAddress}}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">We hope you love your purchase! Thank you for shopping with us.</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">Questions or issues? Just reply to this email.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.refunded",
+    label: "Order Refunded",
+    description: "Sent when an order has been refunded.",
+    defaultSubject: "Refund processed for order #{{order.number}}",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#cbd5e1;">Refund Confirmation</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Your refund has been processed</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:#ffffff;border-radius:24px;padding:6px 14px;">
+                      <span style="color:#475569;font-size:12px;font-weight:600;">REFUNDED</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0;color:#cbd5e1;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, we've processed a refund for your order.</p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Refund Details -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Order Number</span>
+                        </td>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:600;">{{order.number}}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Refund Amount</span>
+                        </td>
+                        <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#059669;font-size:16px;font-weight:700;">\${{order.refundAmount}}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;">
+                          <span style="color:#64748b;font-size:13px;">Refund Date</span>
+                        </td>
+                        <td style="padding:8px 0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:600;">{{order.refundDate}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="margin-top:20px;padding:16px;background:#fef3c7;border-radius:12px;border-left:4px solid #f59e0b;">
+                <p style="margin:0;font-size:14px;color:#92400e;">
+                  <strong>Note:</strong> Refunds typically take 5-10 business days to appear on your original payment method, depending on your bank.
+                </p>
+              </div>
+
+              <!-- Items Refunded -->
+              <div style="margin-top:20px;">
+                <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📦 Items Refunded</p>
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  {{order.itemsHtml}}
+                </table>
+              </div>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">We're sorry to see this order returned. We hope to serve you again soon!</p>
+              <p style="margin:0;font-size:13px;color:#94a3b8;">Questions about your refund? Just reply to this email.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
 ];

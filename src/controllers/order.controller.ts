@@ -2,14 +2,17 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Order from "../models/Order";
 import Product from "../models/Product";
+import User from "../models/User";
 import { prepareCartPricing } from "../services/cartPricing.service";
 import { resolveShippingSelection } from "../services/shipping.service";
+import { dispatchEmailEvent } from "../services/emailService";
+import type { EmailEventKey } from "../constants/emailEvents";
 
 type AuthRequest = Request & { user?: any };
 
 const PAYMENT_STATUSES = ["pending", "awaiting_payment", "paid", "failed", "refunded", "partial"] as const;
 const FULFILLMENT_STATUSES = ["pending", "processing", "ready_to_ship", "shipped", "delivered", "cancelled", "refunded"] as const;
-const SHIPPING_STATUSES = ["not_required", "pending", "label_created", "in_transit", "delivered", "returned", "cancelled"] as const;
+const SHIPPING_STATUSES = ["not_required", "pending", "label_created", "in_transit", "out_for_delivery", "delivered", "returned", "cancelled"] as const;
 const isValidObjectId = (value: string) => mongoose.Types.ObjectId.isValid(value);
 
 const ensureAuth = (req: AuthRequest, res: Response) => {
@@ -19,6 +22,90 @@ const ensureAuth = (req: AuthRequest, res: Response) => {
   }
   return true;
 };
+
+// Helper to format money
+const formatMoney = (n: any) => Number(n || 0).toFixed(2);
+
+// Helper to send order status update emails
+async function sendOrderStatusEmail(order: any, eventKey: EmailEventKey) {
+  try {
+    const user = await User.findById(order.user).select("name email");
+    const to = order.contactEmail || user?.email;
+    if (!to) return;
+
+    // Prepare shipping address string
+    const shippingAddress = order.shippingAddress
+      ? [
+          order.shippingAddress.line1,
+          order.shippingAddress.line2,
+          [order.shippingAddress.city, order.shippingAddress.state, order.shippingAddress.postalCode]
+            .filter(Boolean)
+            .join(", "),
+          order.shippingAddress.country,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : null;
+
+    // Pre-render items HTML
+    const itemsHtml = (order.items || [])
+      .map((item: any) => `
+        <tr>
+          <td style="padding:12px 0;border-bottom:1px solid #f1f5f9;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="vertical-align:top;">
+                  <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">${item.name}</p>
+                  ${item.variationSummary ? `<p style="margin:4px 0 0;font-size:12px;color:#64748b;">${item.variationSummary}</p>` : ""}
+                  <p style="margin:4px 0 0;font-size:13px;color:#64748b;">Qty: ${item.quantity}</p>
+                </td>
+                <td style="vertical-align:top;text-align:right;width:80px;">
+                  <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">$${formatMoney(item.subtotal)}</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      `)
+      .join("");
+
+    const orderData = {
+      id: order._id.toString(),
+      number: order.orderNumber || order._id.toString(),
+      itemsHtml,
+      shippingName: order.shippingAddress?.fullName,
+      shippingAddress,
+      shippingMethod: order.shippingOptionLabel || order.shippingMethod || "Standard",
+      // Tracking info
+      carrier: order.shippingTracking?.carrier || "Carrier TBD",
+      trackingNumber: order.shippingTracking?.trackingNumber || "—",
+      estimatedDelivery: order.shippingTracking?.estimatedDelivery
+        ? new Date(order.shippingTracking.estimatedDelivery).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+        : "To be determined",
+      // Dates
+      shippedDate: order.shippingTracking?.shippedAt
+        ? new Date(order.shippingTracking.shippedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      deliveryDate: new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+      deliveredDate: order.shippingTracking?.deliveredAt
+        ? new Date(order.shippingTracking.deliveredAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      // Refund info
+      refundAmount: formatMoney(order.grandTotal),
+      refundDate: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+    };
+
+    await dispatchEmailEvent(eventKey, {
+      to,
+      data: {
+        user: { name: user?.name || order.shippingAddress?.fullName || "there" },
+        order: orderData,
+      },
+    });
+  } catch (err) {
+    console.error(`Failed to send ${eventKey} email:`, err);
+  }
+}
 
 export const createOrder = async (req: AuthRequest, res: Response) => {
   try {
@@ -417,6 +504,10 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
       order.fulfillmentStatus = fulfillmentStatus;
     }
 
+    // Track previous status for email notifications
+    const previousShippingStatus = order.shippingStatus;
+    const previousPaymentStatus = order.paymentStatus;
+
     if (shippingStatus) {
       if (!SHIPPING_STATUSES.includes(shippingStatus)) {
         return res.status(400).json({ success: false, message: "Invalid shipping status" });
@@ -450,6 +541,31 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
     }
 
     await order.save();
+
+    // Send email notifications based on status changes
+    // Only send if status actually changed (not on first set or same status)
+    if (shippingStatus && shippingStatus !== previousShippingStatus) {
+      if (shippingStatus === "in_transit" || shippingStatus === "label_created") {
+        // Order shipped
+        sendOrderStatusEmail(order, "order.shipped");
+      } else if (shippingStatus === "out_for_delivery") {
+        // Order out for delivery
+        sendOrderStatusEmail(order, "order.out-for-delivery");
+      } else if (shippingStatus === "delivered") {
+        // Order delivered
+        sendOrderStatusEmail(order, "order.delivered");
+      }
+    }
+
+    // Check for shipped in fulfillment status (alternative way to mark as shipped)
+    if (fulfillmentStatus === "shipped" && fulfillmentStatus !== order.fulfillmentStatus && previousShippingStatus !== "in_transit") {
+      sendOrderStatusEmail(order, "order.shipped");
+    }
+
+    // Check for refund
+    if (paymentStatus === "refunded" && paymentStatus !== previousPaymentStatus) {
+      sendOrderStatusEmail(order, "order.refunded");
+    }
 
     return res.json({
       success: true,
@@ -551,6 +667,176 @@ export const adminProcessRefund = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to process refund",
+    });
+  }
+};
+
+// Delete a single order
+export const adminDeleteOrder = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Prevent deletion of paid orders that haven't been refunded
+    if (order.paymentStatus === "paid" && order.fulfillmentStatus !== "refunded") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete paid orders. Please process a refund first.",
+      });
+    }
+
+    await Order.findByIdAndDelete(id);
+
+    return res.json({
+      success: true,
+      message: "Order deleted successfully",
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete order",
+    });
+  }
+};
+
+// Bulk delete orders
+export const adminBulkDeleteOrders = async (req: AuthRequest, res: Response) => {
+  try {
+    const { orderIds, force } = req.body;
+
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide an array of order IDs to delete",
+      });
+    }
+
+    // Validate all IDs
+    const invalidIds = orderIds.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order IDs: ${invalidIds.join(", ")}`,
+      });
+    }
+
+    // Find all orders
+    const orders = await Order.find({ _id: { $in: orderIds } });
+    
+    if (orders.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No orders found with the provided IDs",
+      });
+    }
+
+    // Check for paid orders that haven't been refunded (unless force is true)
+    if (!force) {
+      const paidOrders = orders.filter(
+        (o) => o.paymentStatus === "paid" && o.fulfillmentStatus !== "refunded"
+      );
+      
+      if (paidOrders.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot delete ${paidOrders.length} paid order(s). Process refunds first or use force=true to override.`,
+          paidOrderIds: paidOrders.map((o) => o._id),
+        });
+      }
+    }
+
+    // Delete orders
+    const result = await Order.deleteMany({ _id: { $in: orderIds } });
+
+    return res.json({
+      success: true,
+      message: `Successfully deleted ${result.deletedCount} order(s)`,
+      deletedCount: result.deletedCount,
+      requestedCount: orderIds.length,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete orders",
+    });
+  }
+};
+
+// Bulk update order status
+export const adminBulkUpdateStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const { orderIds, paymentStatus, fulfillmentStatus, shippingStatus } = req.body;
+
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide an array of order IDs to update",
+      });
+    }
+
+    if (!paymentStatus && !fulfillmentStatus && !shippingStatus) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide at least one status to update",
+      });
+    }
+
+    // Validate statuses
+    if (paymentStatus && !PAYMENT_STATUSES.includes(paymentStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid payment status" });
+    }
+    if (fulfillmentStatus && !FULFILLMENT_STATUSES.includes(fulfillmentStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid fulfillment status" });
+    }
+    if (shippingStatus && !SHIPPING_STATUSES.includes(shippingStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid shipping status" });
+    }
+
+    // Validate all IDs
+    const invalidIds = orderIds.filter((id) => !isValidObjectId(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order IDs: ${invalidIds.join(", ")}`,
+      });
+    }
+
+    // Build update object
+    const updateObj: any = {};
+    if (paymentStatus) {
+      updateObj.paymentStatus = paymentStatus;
+      updateObj["payment.status"] = paymentStatus;
+    }
+    if (fulfillmentStatus) {
+      updateObj.fulfillmentStatus = fulfillmentStatus;
+    }
+    if (shippingStatus) {
+      updateObj.shippingStatus = shippingStatus;
+    }
+
+    const result = await Order.updateMany(
+      { _id: { $in: orderIds } },
+      { $set: updateObj }
+    );
+
+    return res.json({
+      success: true,
+      message: `Successfully updated ${result.modifiedCount} order(s)`,
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update orders",
     });
   }
 };

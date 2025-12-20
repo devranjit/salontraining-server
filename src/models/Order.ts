@@ -100,6 +100,7 @@ export interface IOrder extends Document {
     stripeSessionId?: string;
     stripePaymentIntentId?: string;
   };
+  confirmationEmailSent?: boolean;
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
@@ -277,6 +278,7 @@ const orderSchema = new Schema<IOrder>(
     },
     shippingTimeline: { type: [shippingTimelineSchema], default: [] },
     payment: paymentSchema,
+    confirmationEmailSent: { type: Boolean, default: false },
     contactEmail: String,
     contactPhone: String,
     notes: String,

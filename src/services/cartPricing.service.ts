@@ -100,6 +100,25 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
   let totalPhysicalItems = 0;
   let totalWeightKg = 0;
 
+  const computeVariationStock = (productDoc: any): number => {
+    if (!productDoc) return 0;
+    if (productDoc.useCombinedVariations && Array.isArray(productDoc.combinedVariations)) {
+      return productDoc.combinedVariations
+        .filter((cv: any) => cv?.enabled !== false)
+        .reduce((sum: number, cv: any) => sum + Number(cv?.stock || 0), 0);
+    }
+    if (Array.isArray(productDoc.variations)) {
+      return productDoc.variations.reduce((total: number, variation: any) => {
+        if (!Array.isArray(variation?.options)) return total;
+        const optionStock = variation.options
+          .filter((opt: any) => opt?.enabled !== false)
+          .reduce((sum: number, opt: any) => sum + Number(opt?.stock || 0), 0);
+        return total + optionStock;
+      }, 0);
+    }
+    return Number(productDoc.stock || 0);
+  };
+
   for (const cartItem of items) {
     const product = products.find((p) => p._id.toString() === cartItem.productId);
     if (!product) {
@@ -108,11 +127,38 @@ export async function prepareCartPricing(items: CartItemInput[]): Promise<CartPr
 
     const quantity = Math.max(1, Math.min(Number(cartItem.quantity) || 1, 99));
 
+    const isVariable = product.productStructure === "variable";
+    const manageStock = product.manageStock !== false;
+
     if (product.productFormat !== "digital") {
       requiresShipping = true;
       totalPhysicalItems += quantity;
-      if (product.stock < quantity) {
-        throw new Error(`Insufficient stock for ${product.name}`);
+      if (manageStock) {
+        if (isVariable) {
+          // Use selected option stock when provided; otherwise sum all enabled options
+          let minSelectedStock = Number.POSITIVE_INFINITY;
+          const selectedOptions = Array.isArray(cartItem.selectedOptions) ? cartItem.selectedOptions : [];
+          for (const selection of selectedOptions) {
+            const variation = product.variations?.find((v: any) => v.label === selection.label);
+            const option = variation?.options?.find((opt: any) =>
+              selection.optionId ? opt._id?.toString() === selection.optionId : opt.name === selection.optionName
+            );
+            if (!option || option.enabled === false) continue;
+            minSelectedStock = Math.min(minSelectedStock, Number(option.stock ?? 0));
+          }
+
+          if (!Number.isFinite(minSelectedStock)) {
+            minSelectedStock = computeVariationStock(product);
+          }
+
+          if (minSelectedStock < quantity) {
+            throw new Error(`Insufficient stock for ${product.name}`);
+          }
+        } else {
+          if (Number(product.stock || 0) < quantity) {
+            throw new Error(`Insufficient stock for ${product.name}`);
+          }
+        }
       }
     }
 
