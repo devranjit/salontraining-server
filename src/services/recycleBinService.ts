@@ -5,6 +5,7 @@ import Product from "../models/Product";
 import Job from "../models/Job";
 import { Blog } from "../models/Blog";
 import { Education } from "../models/Education";
+import { EducationCategory } from "../models/EducationCategory";
 import MemberVideo from "../models/MemberVideo";
 import User from "../models/User";
 import Category from "../models/Category";
@@ -25,6 +26,7 @@ type EntityKey =
   | "job"
   | "blog"
   | "education"
+  | "education-category"
   | "memberVideo"
   | "user"
   | "category";
@@ -39,6 +41,7 @@ const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
   job: Job,
   blog: Blog,
   education: Education,
+  "education-category": EducationCategory,
   memberVideo: MemberVideo,
   user: User,
   category: Category,
@@ -69,9 +72,10 @@ const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
         email: snapshot.email,
       };
     case "category":
+    case "education-category":
       return {
         name: snapshot.name,
-        slug: snapshot.slug,
+        description: snapshot.description,
       };
     default:
       return {};

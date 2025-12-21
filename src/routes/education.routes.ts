@@ -23,6 +23,14 @@ import {
   toggleEducationFeatured,
   adminChangeEducationOwner,
   expireEducation,
+  // Education Category CRUD
+  getEducationCategories,
+  adminGetEducationCategories,
+  adminGetEducationCategoryById,
+  createEducationCategory,
+  updateEducationCategory,
+  deleteEducationCategory,
+  toggleEducationCategoryActive,
 } from "../controllers/education.controller";
 
 const router = Router();
@@ -30,6 +38,15 @@ const router = Router();
 /* ---------------------- PUBLIC ROUTES ---------------------- */
 router.get("/", getEducationListings);
 router.get("/featured", getFeaturedEducation);
+router.get("/categories", getEducationCategories);
+
+/* ---------------------- EDUCATION CATEGORY ADMIN ROUTES ---------------------- */
+router.get("/admin/categories", protect, managerOrAdmin, adminGetEducationCategories);
+router.get("/admin/categories/:id", protect, managerOrAdmin, adminGetEducationCategoryById);
+router.post("/admin/categories", protect, managerOrAdmin, createEducationCategory);
+router.put("/admin/categories/:id", protect, managerOrAdmin, updateEducationCategory);
+router.patch("/admin/categories/:id/toggle-active", protect, managerOrAdmin, toggleEducationCategoryActive);
+router.delete("/admin/categories/:id", protect, managerOrAdmin, deleteEducationCategory);
 
 /* ---------------------- USER ROUTES ---------------------- */
 router.post("/", protect, recaptchaMiddleware("submit_education"), createEducation);

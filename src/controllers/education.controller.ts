@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Education } from "../models/Education";
+import { EducationCategory } from "../models/EducationCategory";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
 import {
@@ -786,6 +787,189 @@ export const expireEducation = async (req: Request, res: Response) => {
 
     return res.json({ success: true, listing });
   } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// EDUCATION CATEGORY CRUD OPERATIONS
+// ===============================
+
+// ===============================
+// PUBLIC — Get All Education Categories
+// ===============================
+export const getEducationCategories = async (req: Request, res: Response) => {
+  try {
+    const { active } = req.query;
+    const query: any = {};
+    
+    // By default, only return active categories for public access
+    if (active !== "all") {
+      query.isActive = true;
+    }
+    
+    const categories = await EducationCategory.find(query).sort({ name: 1 });
+    return res.json({ success: true, categories });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Get All Education Categories (including inactive)
+// ===============================
+export const adminGetEducationCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await EducationCategory.find().sort({ name: 1 });
+    return res.json({ success: true, categories });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Get Single Education Category
+// ===============================
+export const adminGetEducationCategoryById = async (req: Request, res: Response) => {
+  try {
+    const category = await EducationCategory.findById(req.params.id);
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+    return res.json({ success: true, category });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Create Education Category
+// ===============================
+export const createEducationCategory = async (req: Request, res: Response) => {
+  try {
+    const { name, description, isActive } = req.body;
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({ success: false, message: "Category name is required" });
+    }
+
+    const exists = await EducationCategory.findOne({ 
+      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } 
+    });
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "Education category already exists",
+      });
+    }
+
+    const category = await EducationCategory.create({ 
+      name: name.trim(), 
+      description, 
+      isActive: isActive !== false 
+    });
+
+    return res.status(201).json({ success: true, category });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Update Education Category
+// ===============================
+export const updateEducationCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, isActive } = req.body;
+
+    if (name !== undefined && (!name || name.trim() === "")) {
+      return res.status(400).json({ success: false, message: "Category name cannot be empty" });
+    }
+
+    // Check for duplicate name (excluding current category)
+    if (name) {
+      const exists = await EducationCategory.findOne({ 
+        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }, 
+        _id: { $ne: id } 
+      });
+      if (exists) {
+        return res.status(400).json({
+          success: false,
+          message: "Education category with this name already exists",
+        });
+      }
+    }
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (description !== undefined) updateData.description = description;
+    if (isActive !== undefined) updateData.isActive = isActive;
+
+    const updated = await EducationCategory.findByIdAndUpdate(id, updateData, { new: true });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+
+    return res.json({ success: true, category: updated });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Delete Education Category
+// ===============================
+export const deleteEducationCategory = async (req: any, res: Response) => {
+  try {
+    const category = await EducationCategory.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Education category not found",
+      });
+    }
+
+    await moveToRecycleBin("education-category", category, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Education category moved to recycle bin" });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ===============================
+// ADMIN — Toggle Education Category Active Status
+// ===============================
+export const toggleEducationCategoryActive = async (req: Request, res: Response) => {
+  try {
+    const category = await EducationCategory.findById(req.params.id);
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
+
+    category.isActive = !category.isActive;
+    await category.save();
+
+    return res.json({
+      success: true,
+      message: category.isActive ? "Category activated" : "Category deactivated",
+      category,
+    });
+  } catch (err: any) {
+    if (err.name === "CastError") {
+      return res.status(404).json({ success: false, message: "Education category not found" });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 };
