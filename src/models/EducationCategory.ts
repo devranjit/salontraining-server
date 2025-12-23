@@ -12,3 +12,4 @@ const educationCategorySchema = new mongoose.Schema(
 export const EducationCategory = mongoose.model("EducationCategory", educationCategorySchema);
 
 
+

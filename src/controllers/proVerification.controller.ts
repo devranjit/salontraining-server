@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import ProVerification from "../models/ProVerification";
+import User from "../models/User";
 
 type AuthRequest = Request & { user?: any };
 
@@ -157,6 +158,113 @@ export const deleteProVerification = async (req: AuthRequest, res: Response) => 
     return res.status(500).json({ success: false, message: "Failed to delete verification" });
   }
 };
+
+export const adminSearchUsersForProVerification = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const q = (req.query.q as string | undefined)?.trim() || "";
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+
+    const search: Record<string, unknown> = {};
+    if (q) {
+      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      search.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+    }
+
+    const users = await User.find(search)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select("name email phone business first_name last_name role status createdAt");
+
+    const userIds = users.map((u) => u._id);
+    const verifications = await ProVerification.find({ user: { $in: userIds } }).select("user status reviewedAt");
+    const verificationMap = new Map<string, { status: string; reviewedAt: Date | null }>();
+    verifications.forEach((v) => {
+      verificationMap.set(String(v.user), { status: v.status, reviewedAt: v.reviewedAt });
+    });
+
+    return res.json({
+      success: true,
+      users: users.map((u) => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        business: u.business,
+        first_name: (u as any).first_name,
+        last_name: (u as any).last_name,
+        role: u.role,
+        status: u.status,
+        createdAt: u.createdAt,
+        verification: verificationMap.get(String(u._id)) || null,
+      })),
+    });
+  } catch (error) {
+    console.error("adminSearchUsersForProVerification error:", error);
+    return res.status(500).json({ success: false, message: "Failed to search users" });
+  }
+};
+
+export const adminApproveUserForProVerification = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const { userId, name, license, phone, salonOrSchool, notes } = req.body as {
+      userId?: string;
+      name?: string;
+      license?: string;
+      phone?: string;
+      salonOrSchool?: string;
+      notes?: string;
+    };
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "userId is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const existing = await ProVerification.findOne({ user: userId });
+    const verification = existing ?? new ProVerification({ user: userId });
+
+    const resolvedName =
+      (name || user.name || `${(user as any).first_name || ""} ${(user as any).last_name || ""}`).trim() ||
+      "Admin Approved";
+    const resolvedLicense = (license || "ADMIN-MANUAL-APPROVAL").trim();
+
+    verification.name = resolvedName;
+    verification.license = resolvedLicense;
+    verification.phone = (phone || (user as any).phone || "").trim();
+    verification.salonOrSchool = (salonOrSchool || (user as any).business || "").trim();
+    verification.status = "approved";
+    verification.reviewedBy = req.user._id;
+    verification.reviewedAt = new Date();
+    if (typeof notes === "string") {
+      verification.notes = notes;
+    }
+
+    await verification.save();
+
+    return res.json({
+      success: true,
+      verification,
+      message: `User ${user.email} approved for ST Shop purchases.`,
+    });
+  } catch (error) {
+    console.error("adminApproveUserForProVerification error:", error);
+    return res.status(500).json({ success: false, message: "Failed to approve user" });
+  }
+};
+
+
 
 
 
