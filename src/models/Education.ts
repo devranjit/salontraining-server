@@ -25,7 +25,7 @@ const educationSchema = new mongoose.Schema(
     tags: [{ type: String }],
 
     // Contact Information
-    email: { type: String, required: true },
+    email: { type: String },
     phone: { type: String },
     website: { type: String },
     
