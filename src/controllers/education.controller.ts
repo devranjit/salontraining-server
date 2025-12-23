@@ -40,7 +40,8 @@ export const getEducationListings = async (req: Request, res: Response) => {
 
     const now = new Date();
     const query: any = {
-      status: { $in: ["approved", "published"] },
+      status: "published",
+      isPublished: { $ne: false },
       isExpired: { $ne: true },
       publishDate: { $lte: now },
       $or: [{ expiryDate: null }, { expiryDate: { $gt: now } }],
@@ -126,8 +127,9 @@ export const getFeaturedEducation = async (req: Request, res: Response) => {
 
     const now = new Date();
     const query: any = {
-      status: { $in: ["approved", "published"] },
+      status: "published",
       featured: true,
+      isPublished: { $ne: false },
       isExpired: { $ne: true },
       publishDate: { $lte: now },
       $or: [{ expiryDate: null }, { expiryDate: { $gt: now } }],
@@ -157,7 +159,7 @@ export const getSingleEducation = async (req: Request, res: Response) => {
 
     const listing = await Education.findById(req.params.id).populate("owner", "name email");
 
-    if (!listing || !["approved", "published"].includes(listing.status)) {
+    if (!listing || listing.status !== "published") {
       return res.status(404).json({ success: false, message: "Education listing not found or not published" });
     }
 
@@ -207,6 +209,7 @@ export const createEducation = async (req: any, res: Response) => {
       classFormat,
       byAppointment,
       classDate,
+      classEndDate,
       startTime,
       endTime,
       duration,
@@ -245,6 +248,7 @@ export const createEducation = async (req: any, res: Response) => {
     const now = new Date();
     const expiryDate = computeEducationExpiryDate({
       classDate,
+      classEndDate,
       endTime,
       educationType,
     });
@@ -268,6 +272,7 @@ export const createEducation = async (req: any, res: Response) => {
       classFormat,
       byAppointment,
       classDate,
+      classEndDate,
       startTime,
       endTime,
       duration,
@@ -364,11 +369,13 @@ export const updateMyEducation = async (req: any, res: Response) => {
 
     const now = new Date();
     const classDate = req.body.classDate ?? listing.classDate;
+    const classEndDate = req.body.classEndDate ?? listing.classEndDate;
     const endTime = req.body.endTime ?? listing.endTime;
     const educationType = req.body.educationType ?? listing.educationType;
 
     const expiryDate = computeEducationExpiryDate({
       classDate,
+      classEndDate,
       endTime,
       educationType,
     });
@@ -658,6 +665,7 @@ export const publishEducation = async (req: Request, res: Response) => {
     const now = new Date();
     const expiryDate = computeEducationExpiryDate({
       classDate: listing.classDate,
+      classEndDate: listing.classEndDate,
       endTime: listing.endTime,
       educationType: listing.educationType,
     });

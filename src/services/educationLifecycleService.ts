@@ -2,6 +2,7 @@ import { Education } from "../models/Education";
 
 type EducationInput = {
   classDate?: Date | string | null;
+  classEndDate?: Date | string | null;
   endTime?: string | null;
   educationType?: string | null;
 };
@@ -13,10 +14,13 @@ type EducationInput = {
  * - pre-recorded: no automatic expiry (returns undefined)
  */
 export function computeEducationExpiryDate(input: EducationInput) {
-  const { classDate, endTime, educationType } = input;
+  const { classDate, classEndDate, endTime, educationType } = input;
 
-  if (!classDate) return undefined;
-  const date = new Date(classDate as any);
+  if (!classDate && !classEndDate) return undefined;
+
+  // Prefer end date when provided (multi-day classes)
+  const base = classEndDate || classDate;
+  const date = new Date(base as any);
   if (Number.isNaN(date.getTime())) return undefined;
 
   if (educationType === "pre-recorded") return undefined;

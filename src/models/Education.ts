@@ -46,6 +46,7 @@ const educationSchema = new mongoose.Schema(
     
     // Schedule (for live/hybrid classes)
     classDate: { type: Date },
+    classEndDate: { type: Date },
     startTime: { type: String },
     endTime: { type: String },
     duration: { type: String }, // e.g., "2 hours", "3 days"
