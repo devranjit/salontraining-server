@@ -1,44 +1,8 @@
 import { Request, Response } from "express";
-import jwt from "jsonwebtoken";
 import SystemLog from "../models/SystemLog";
-import { User } from "../models/User";
-
-type TokenPayload = {
-  id: string;
-};
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 200;
-
-async function resolveUserContext(req: Request) {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-
-  try {
-    const token = authHeader.replace("Bearer ", "");
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET as string
-    ) as TokenPayload;
-
-    if (!decoded?.id) return null;
-
-    const user = await User.findById(decoded.id)
-      .select("_id name email role status")
-      .lean();
-
-    if (!user || user.status === "blocked") {
-      return null;
-    }
-
-    return user;
-  } catch {
-    return null;
-  }
-}
 
 export async function createSystemLog(req: Request, res: Response) {
   try {
@@ -75,7 +39,8 @@ export async function createSystemLog(req: Request, res: Response) {
       return value;
     };
 
-    const user = await resolveUserContext(req);
+    // User is now guaranteed from protect middleware
+    const user = (req as any).user;
     const ipHeader = (req.headers["x-forwarded-for"] ||
       req.headers["x-real-ip"]) as string | undefined;
 

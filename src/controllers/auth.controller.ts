@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
 import PendingRegistration from "../models/PendingRegistration";
+import { TokenBlacklist } from "../models/TokenBlacklist";
 import { Request, Response } from "express";
 import { dispatchEmailEvent } from "../services/emailService";
 
@@ -13,6 +14,41 @@ const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 const REGISTRATION_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours for pending registration
 const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+
+// Token expiration times
+const ACCESS_TOKEN_EXPIRY = "1h"; // Short-lived access token
+const REFRESH_TOKEN_EXPIRY = "7d"; // Long-lived refresh token
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+
+// Cookie configuration
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: IS_PRODUCTION,
+  sameSite: IS_PRODUCTION ? ("strict" as const) : ("lax" as const),
+  path: "/",
+};
+
+// Helper to set auth cookies
+const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
+  // Access token cookie (1 hour)
+  res.cookie("accessToken", accessToken, {
+    ...COOKIE_OPTIONS,
+    maxAge: 60 * 60 * 1000, // 1 hour
+  });
+  
+  // Refresh token cookie (7 days)
+  res.cookie("refreshToken", refreshToken, {
+    ...COOKIE_OPTIONS,
+    maxAge: REFRESH_TOKEN_EXPIRY_MS,
+  });
+};
+
+// Helper to clear auth cookies
+const clearAuthCookies = (res: Response) => {
+  res.clearCookie("accessToken", { path: "/" });
+  res.clearCookie("refreshToken", { path: "/" });
+};
 const FRONTEND_BASE_URL = (
   process.env.FRONTEND_URL ||
   (process.env.NODE_ENV === "production"
@@ -402,11 +438,22 @@ export const loginUser = async (req: Request, res: Response) => {
     user.lastLogin = new Date();
     await user.save();
 
-    const token = jwt.sign(
-      { id: user._id },
+    // Generate short-lived access token (1 hour)
+    const accessToken = jwt.sign(
+      { id: user._id, type: "access" },
       process.env.JWT_SECRET as string,
-      { expiresIn: "7d" }
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
+
+    // Generate long-lived refresh token (7 days)
+    const refreshToken = jwt.sign(
+      { id: user._id, type: "refresh" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: REFRESH_TOKEN_EXPIRY }
+    );
+
+    // Set httpOnly cookies
+    setAuthCookies(res, accessToken, refreshToken);
 
     dispatchEmailEvent("auth.login", {
       to: user.email,
@@ -425,7 +472,7 @@ export const loginUser = async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      token,
+      token: accessToken, // Still return token for backward compatibility
       user: { ...user.toObject(), password: undefined, otp: undefined, otpExpires: undefined },
     });
   } catch (err) {
@@ -564,15 +611,26 @@ export const verifyOtp = async (req: Request, res: Response) => {
     user.lastLogin = new Date();
     await user.save();
 
-    const token = jwt.sign(
-      { id: user._id },
+    // Generate short-lived access token (1 hour)
+    const accessToken = jwt.sign(
+      { id: user._id, type: "access" },
       process.env.JWT_SECRET as string,
-      { expiresIn: "7d" }
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
+
+    // Generate long-lived refresh token (7 days)
+    const refreshToken = jwt.sign(
+      { id: user._id, type: "refresh" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: REFRESH_TOKEN_EXPIRY }
+    );
+
+    // Set httpOnly cookies
+    setAuthCookies(res, accessToken, refreshToken);
 
     return res.json({
       success: true,
-      token,
+      token: accessToken, // Still return token for backward compatibility
       user: { ...user.toObject(), password: undefined, otp: undefined, otpExpires: undefined },
     });
 
@@ -813,5 +871,152 @@ export const unlockWithOtp = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Unlock with OTP error:", err);
     return res.status(500).json({ message: "Failed to unlock account" });
+  }
+};
+
+// ---------------------------------------------
+// LOGOUT USER (Invalidate Token + Clear Cookies)
+// ---------------------------------------------
+export const logoutUser = async (req: any, res: Response) => {
+  try {
+    const accessToken = req.token || req.cookies?.accessToken || req.headers.authorization?.replace("Bearer ", "");
+    const refreshToken = req.cookies?.refreshToken;
+    
+    // Blacklist access token if present
+    if (accessToken) {
+      const decoded: any = jwt.decode(accessToken);
+      if (decoded?.exp) {
+        await TokenBlacklist.findOneAndUpdate(
+          { token: accessToken },
+          {
+            token: accessToken,
+            userId: req.user._id,
+            expiresAt: new Date(decoded.exp * 1000),
+            reason: "logout",
+          },
+          { upsert: true, new: true }
+        );
+      }
+    }
+
+    // Blacklist refresh token if present
+    if (refreshToken) {
+      const decoded: any = jwt.decode(refreshToken);
+      if (decoded?.exp) {
+        await TokenBlacklist.findOneAndUpdate(
+          { token: refreshToken },
+          {
+            token: refreshToken,
+            userId: req.user._id,
+            expiresAt: new Date(decoded.exp * 1000),
+            reason: "logout",
+          },
+          { upsert: true, new: true }
+        );
+      }
+    }
+
+    // Clear httpOnly cookies
+    clearAuthCookies(res);
+
+    return res.json({ 
+      success: true, 
+      message: "Logged out successfully" 
+    });
+
+  } catch (err) {
+    console.error("Logout error:", err);
+    return res.status(500).json({ success: false, message: "Logout failed" });
+  }
+};
+
+// ---------------------------------------------
+// REFRESH ACCESS TOKEN
+// ---------------------------------------------
+export const refreshAccessToken = async (req: Request, res: Response) => {
+  try {
+    // Get refresh token from cookie or body
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Refresh token required" 
+      });
+    }
+
+    // Check if refresh token is blacklisted
+    const blacklisted = await TokenBlacklist.findOne({ token: refreshToken });
+    if (blacklisted) {
+      clearAuthCookies(res);
+      return res.status(401).json({ 
+        success: false, 
+        message: "Refresh token has been revoked" 
+      });
+    }
+
+    // Verify refresh token
+    let decoded: any;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET as string);
+    } catch (err) {
+      clearAuthCookies(res);
+      return res.status(401).json({ 
+        success: false, 
+        message: "Invalid or expired refresh token" 
+      });
+    }
+
+    // Verify it's a refresh token type
+    if (decoded.type !== "refresh") {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Invalid token type" 
+      });
+    }
+
+    // Get user
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) {
+      clearAuthCookies(res);
+      return res.status(401).json({ 
+        success: false, 
+        message: "User not found" 
+      });
+    }
+
+    if (user.status === "blocked") {
+      clearAuthCookies(res);
+      return res.status(403).json({ 
+        success: false, 
+        message: "Account blocked" 
+      });
+    }
+
+    // Generate new access token
+    const newAccessToken = jwt.sign(
+      { id: user._id, type: "access" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
+    );
+
+    // Set new access token cookie
+    res.cookie("accessToken", newAccessToken, {
+      ...COOKIE_OPTIONS,
+      maxAge: 60 * 60 * 1000, // 1 hour
+    });
+
+    return res.json({
+      success: true,
+      token: newAccessToken,
+      user: { ...user.toObject(), password: undefined },
+    });
+
+  } catch (err) {
+    console.error("Refresh token error:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Failed to refresh token" 
+    });
   }
 };

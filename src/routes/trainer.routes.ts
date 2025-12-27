@@ -54,14 +54,23 @@ router.post("/upload", protect, upload.single("file"), async (req, res) => {
       });
     }
 
-    const uploaded = await uploadToCloudinary(req.file.buffer);
+    // Pass MIME type and original filename for validation
+    const uploaded = await uploadToCloudinary(
+      req.file.buffer,
+      req.file.mimetype,
+      req.file.originalname
+    );
 
     return res.json({
       success: true,
       file: uploaded,   // contains url + public_id
     });
   } catch (err: any) {
-    return res.status(500).json({
+    // Return 400 for validation errors
+    const statusCode = err.message.includes("Invalid") || 
+                       err.message.includes("Blocked") ||
+                       err.message.includes("too large") ? 400 : 500;
+    return res.status(statusCode).json({
       success: false,
       message: err.message,
     });

@@ -3,6 +3,8 @@ dotenv.config();
 
 import express, { Request, Response } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
 import { connectDB } from "./config/connectDB";
 
 // ROUTES
@@ -74,6 +76,32 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// -----------------------------------------
+// RATE LIMITING
+// -----------------------------------------
+// Global rate limit: 100 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // 1000 requests per window
+  message: { success: false, message: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Strict rate limit for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // 20 requests per window for auth
+  message: { success: false, message: "Too many authentication attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+});
+
+// Apply global limiter
+app.use(globalLimiter);
 
 // -----------------------------------------
 // CORS CONFIG
@@ -159,7 +187,7 @@ app.use("/api/admin/email", emailAdminRoutes);
 app.use("/api/admin/recycle-bin", recycleBinRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes); // Auth routes have stricter rate limiting
 app.use("/api/forms", formSubmissionRoutes);
 app.use("/api/pro-verification", proVerificationRoutes);
 

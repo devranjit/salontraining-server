@@ -1,18 +1,36 @@
 import jwt from "jsonwebtoken";
 import { Request, Response, NextFunction } from "express";
 import { User } from "../models/User";
+import { TokenBlacklist } from "../models/TokenBlacklist";
 
 export const protect = async (req: any, res: Response, next: NextFunction) => {
   try {
+    // Get token from Authorization header OR httpOnly cookie
     const authHeader = req.headers.authorization;
+    let token: string | undefined;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.replace("Bearer ", "");
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    }
+
+    if (!token) {
       return res.status(401).json({ success: false, message: "No token provided" });
     }
 
-    const token = authHeader.replace("Bearer ", "");
+    // Check if token has been invalidated (logout/revoked)
+    const blacklisted = await TokenBlacklist.findOne({ token });
+    if (blacklisted) {
+      return res.status(401).json({ success: false, message: "Token has been revoked" });
+    }
 
     const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);
+
+    // For access tokens with type field, verify it's an access token
+    if (decoded.type && decoded.type !== "access") {
+      return res.status(401).json({ success: false, message: "Invalid token type" });
+    }
 
     const user = await User.findById(decoded.id).select("-password");
     if (!user) {
@@ -24,9 +42,18 @@ export const protect = async (req: any, res: Response, next: NextFunction) => {
     }
 
     req.user = user;
+    req.token = token; // Store token for potential logout
 
     next();
-  } catch (err) {
+  } catch (err: any) {
+    // Check for token expiration specifically
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Token expired",
+        code: "TOKEN_EXPIRED"
+      });
+    }
     return res.status(401).json({ success: false, message: "Token error" });
   }
 };

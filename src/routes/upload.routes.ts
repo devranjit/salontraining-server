@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
+import { protect } from "../middleware/auth";
 
 const router = Router();
 
@@ -9,8 +10,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * SINGLE UPLOAD (field name: "file")
+ * PROTECTED - requires authentication
  */
-router.post("/", upload.single("file"), async (req, res) => {
+router.post("/", protect, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -19,14 +21,23 @@ router.post("/", upload.single("file"), async (req, res) => {
       });
     }
 
-    const { url, public_id } = await uploadToCloudinary(req.file.buffer);
+    // Pass MIME type and original filename for validation
+    const { url, public_id } = await uploadToCloudinary(
+      req.file.buffer,
+      req.file.mimetype,
+      req.file.originalname
+    );
 
     return res.json({
       success: true,
       file: { url, public_id }
     });
   } catch (err: any) {
-    return res.status(500).json({
+    // Return 400 for validation errors
+    const statusCode = err.message.includes("Invalid") || 
+                       err.message.includes("Blocked") ||
+                       err.message.includes("too large") ? 400 : 500;
+    return res.status(statusCode).json({
       success: false,
       message: err.message,
     });
@@ -35,8 +46,9 @@ router.post("/", upload.single("file"), async (req, res) => {
 
 /**
  * IMAGE UPLOAD (field name: "image") - Used by product forms
+ * PROTECTED - requires authentication
  */
-router.post("/image", upload.single("image"), async (req, res) => {
+router.post("/image", protect, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -45,12 +57,12 @@ router.post("/image", upload.single("image"), async (req, res) => {
       });
     }
 
-    console.log("🔥 Image Upload Called...");
-    console.log("🔥 Buffer Size:", req.file.buffer.length);
-
-    const { url, public_id } = await uploadToCloudinary(req.file.buffer);
-
-    console.log("🔥 Cloudinary Response:", { url, public_id });
+    // Pass MIME type and original filename for validation
+    const { url, public_id } = await uploadToCloudinary(
+      req.file.buffer,
+      req.file.mimetype,
+      req.file.originalname
+    );
 
     return res.json({
       success: true,
@@ -58,8 +70,11 @@ router.post("/image", upload.single("image"), async (req, res) => {
       publicId: public_id,
     });
   } catch (err: any) {
-    console.error("🔥 Upload Error:", err.message);
-    return res.status(500).json({
+    // Return 400 for validation errors
+    const statusCode = err.message.includes("Invalid") || 
+                       err.message.includes("Blocked") ||
+                       err.message.includes("too large") ? 400 : 500;
+    return res.status(statusCode).json({
       success: false,
       message: err.message,
     });
@@ -69,15 +84,28 @@ router.post("/image", upload.single("image"), async (req, res) => {
 
 /**
  * MULTIPLE UPLOADS
+ * PROTECTED - requires authentication
  */
-router.post("/multiple", upload.array("files", 10), async (req, res) => {
+router.post("/multiple", protect, upload.array("files", 10), async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No files uploaded",
+      });
+    }
 
     const results = [];
 
     for (const file of files) {
-      const { url, public_id } = await uploadToCloudinary(file.buffer);
+      // Pass MIME type and original filename for validation
+      const { url, public_id } = await uploadToCloudinary(
+        file.buffer,
+        file.mimetype,
+        file.originalname
+      );
       results.push({ url, public_id });
     }
 
@@ -86,7 +114,11 @@ router.post("/multiple", upload.array("files", 10), async (req, res) => {
       files: results,
     });
   } catch (err: any) {
-    return res.status(500).json({
+    // Return 400 for validation errors
+    const statusCode = err.message.includes("Invalid") || 
+                       err.message.includes("Blocked") ||
+                       err.message.includes("too large") ? 400 : 500;
+    return res.status(statusCode).json({
       success: false,
       message: err.message,
     });

@@ -15,7 +15,7 @@ router.post("/webhook", stripeWebhook);
 
 // Protected routes
 router.post("/create-session", protect, createCheckoutSession);
-router.get("/verify-session", verifyCheckoutSession);
+router.get("/verify-session", protect, verifyCheckoutSession); // PROTECTED - requires authentication
 router.post("/preview-coupon", protect, previewCoupon);
 
 export default router;

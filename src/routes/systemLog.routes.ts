@@ -10,7 +10,8 @@ import { adminOnly } from "../middleware/admin";
 
 const router = Router();
 
-router.post("/", createSystemLog);
+// PROTECTED - requires authentication to create logs
+router.post("/", protect, createSystemLog);
 router.get("/admin", protect, adminOnly, getSystemLogs);
 router.get("/admin/stats", protect, adminOnly, getSystemLogStats);
 router.get("/admin/tasks", protect, adminOnly, getSystemLogTasks);

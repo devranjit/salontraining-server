@@ -1,7 +1,9 @@
 import express from "express";
 import { 
   registerUser, 
-  loginUser, 
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
   getMe, 
   sendOtp, 
   verifyOtp,
@@ -49,8 +51,12 @@ router.post("/reset-password-otp", resetPasswordWithOtp);
 // Account unlock routes
 router.post("/unlock-otp", unlockWithOtp); // Self-service unlock with OTP
 
+// Token refresh (does not require protect - uses refresh token)
+router.post("/refresh", refreshAccessToken);
+
 // Protected routes
 router.get("/me", protect, getMe);
+router.post("/logout", protect, logoutUser); // Token invalidation on logout
 router.put("/update-profile", protect, updateProfile);
 router.post("/update-profile", protect, updateProfile); // Also accept POST
 
