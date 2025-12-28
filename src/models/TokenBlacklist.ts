@@ -40,3 +40,4 @@ const tokenBlacklistSchema = new mongoose.Schema(
 export const TokenBlacklist = mongoose.model("TokenBlacklist", tokenBlacklistSchema);
 export default TokenBlacklist;
 
+

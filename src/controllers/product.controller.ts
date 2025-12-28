@@ -512,19 +512,38 @@ export const createUserProduct = async (req: any, res: Response) => {
       contactPhone,
     } = req.body;
 
-    if (!name || !price) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: "Name and price are required",
+        message: "Name is required",
       });
     }
+
+    // Normalize optional pricing fields (allow blank for listings)
+    const priceProvided =
+      price !== undefined &&
+      price !== null &&
+      !(typeof price === "string" && price.trim() === "");
+    const parsedPrice = priceProvided ? Number(price) : undefined;
+    const normalizedPrice =
+      parsedPrice !== undefined && !isNaN(parsedPrice) ? parsedPrice : undefined;
+
+    const salePriceProvided =
+      salePrice !== undefined &&
+      salePrice !== null &&
+      !(typeof salePrice === "string" && salePrice.trim() === "");
+    const parsedSalePrice = salePriceProvided ? Number(salePrice) : undefined;
+    const normalizedSalePrice =
+      parsedSalePrice !== undefined && !isNaN(parsedSalePrice)
+        ? parsedSalePrice
+        : undefined;
 
     const product = await Product.create({
       name,
       description,
       shortDescription,
-      price,
-      salePrice,
+      price: normalizedPrice,
+      salePrice: normalizedSalePrice,
       productType: productType || "other",
       images: images || [],
       tags: tags || [],
@@ -1043,12 +1062,31 @@ export const createProduct = async (req: any, res: Response) => {
       contactPhone,
     } = req.body;
 
-    if (!name || price === undefined) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: "Name and price are required",
+        message: "Name is required",
       });
     }
+
+    // Normalize optional pricing fields (allow blank for products)
+    const priceProvided =
+      price !== undefined &&
+      price !== null &&
+      !(typeof price === "string" && price.trim() === "");
+    const parsedPrice = priceProvided ? Number(price) : undefined;
+    const normalizedPrice =
+      parsedPrice !== undefined && !isNaN(parsedPrice) ? parsedPrice : undefined;
+
+    const salePriceProvided =
+      salePrice !== undefined &&
+      salePrice !== null &&
+      !(typeof salePrice === "string" && salePrice.trim() === "");
+    const parsedSalePrice = salePriceProvided ? Number(salePrice) : undefined;
+    const normalizedSalePrice =
+      parsedSalePrice !== undefined && !isNaN(parsedSalePrice)
+        ? parsedSalePrice
+        : undefined;
 
     // Normalize bundle mode and determine product structure based on input
     const normalizedBundleMode = normalizeBundleMode(bundlePricingMode);
@@ -1066,8 +1104,8 @@ export const createProduct = async (req: any, res: Response) => {
       name,
       description,
       shortDescription,
-      price,
-      salePrice,
+      price: normalizedPrice,
+      salePrice: normalizedSalePrice,
       sku,
       category,
       productType,

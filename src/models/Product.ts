@@ -96,7 +96,8 @@ const productSchema = new mongoose.Schema(
       default: "simple",
     },
 
-    price: { type: Number, required: true },     // base price
+    // Price is optional for listing submissions; defaults to 0 when omitted
+    price: { type: Number, default: 0 },
     salePrice: { type: Number },                 // optional sale price
     
     sku: { type: String },                       // stock keeping unit (for simple products)
