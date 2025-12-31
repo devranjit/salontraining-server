@@ -6,6 +6,37 @@ import { getMailClient } from "./mailClient";
 
 type TemplateData = Record<string, any>;
 
+// Cache for templates and triggers to reduce DB queries
+const templateCache = new Map<string, { data: any; timestamp: number }>();
+const triggerCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 60000; // 1 minute cache
+
+const getCachedTemplate = async (key: string) => {
+  const cached = templateCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  const template = await EmailTemplate.findOne({ key }).lean();
+  templateCache.set(key, { data: template, timestamp: Date.now() });
+  return template;
+};
+
+const getCachedTrigger = async (event: string) => {
+  const cached = triggerCache.get(event);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  const trigger = await EmailTrigger.findOne({ event }).lean();
+  triggerCache.set(event, { data: trigger, timestamp: Date.now() });
+  return trigger;
+};
+
+// Clear cache (call when templates/triggers are updated)
+export const clearEmailCache = () => {
+  templateCache.clear();
+  triggerCache.clear();
+};
+
 const tokenRegex = /{{\s*([^{}]+?)\s*}}/g;
 
 const getValue = (data: TemplateData, path: string) => {
@@ -119,7 +150,10 @@ const sendWithTemplate = async (options: {
   test?: boolean;
 }) => {
   const { event, templateKey, to, data = {}, test } = options;
-  const template = await EmailTemplate.findOne({ key: templateKey });
+  // Use cached template for faster lookups
+  const template = test 
+    ? await EmailTemplate.findOne({ key: templateKey }) // Fresh lookup for test emails
+    : await getCachedTemplate(templateKey);
   if (!template || !template.enabled) {
     await logStatus({
       event,
@@ -181,7 +215,8 @@ export const dispatchEmailEvent = async (
   }
 ) => {
   await ensureEmailDefaults();
-  const trigger = await EmailTrigger.findOne({ event });
+  // Use cached trigger for faster lookups
+  const trigger = await getCachedTrigger(event);
   if (!trigger || !trigger.enabled) {
     await logStatus({
       event,

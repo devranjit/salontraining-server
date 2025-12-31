@@ -4,6 +4,10 @@ export type EmailEventKey =
   | "auth.registered"
   | "auth.login"
   | "auth.password-reset"
+  | "auth.password-changed"
+  | "auth.email-change-otp"
+  | "auth.email-changed"
+  | "auth.account-deleted"
   | "auth.registration-locked"
   | "auth.account-unlocked"
   | "admin.recycle-bin-warning"
@@ -123,6 +127,63 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
         <a href="{{reset.url}}" style="background:#d57a2c;color:#fff;text-decoration:none;padding:12px 32px;border-radius:999px;font-weight:bold;">Reset Password</a>
       </p>
       <p style="color:#94a3b8;font-size:12px;">The link expires in 60 minutes.</p>
+    `,
+  },
+  {
+    key: "auth.password-changed",
+    label: "Password Changed",
+    description: "Sent when a user successfully changes their password.",
+    defaultSubject: "Your SalonTraining password has been changed",
+    defaultHtml: `
+      <h1 style="color:#16a34a;margin-bottom:16px;">Password Changed</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Your password was successfully changed on {{context.timestamp}}.</p>
+      <p style="color:#555;">If you did not make this change, please contact our support team immediately.</p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">Contact support at support@salontraining.com</p>
+    `,
+  },
+  {
+    key: "auth.email-change-otp",
+    label: "Email Change Verification",
+    description: "Sent to the new email address when a user requests to change their email.",
+    defaultSubject: "Verify your new email address - SalonTraining",
+    defaultHtml: `
+      <h1 style="color:#d57a2c;margin-bottom:16px;">Verify your new email</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Someone requested to change the email on a SalonTraining account from <strong>{{currentEmail}}</strong> to this email address.</p>
+      <p style="color:#555;">Use the code below to verify this email address:</p>
+      <div style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#fff;background:#d57a2c;padding:12px 24px;border-radius:12px;text-align:center;margin:24px 0;">
+        {{otp}}
+      </div>
+      <p style="color:#777;font-size:12px;">This code expires in 5 minutes.</p>
+      <p style="color:#777;font-size:12px;margin-top:16px;">If you did not request this change, please ignore this email.</p>
+    `,
+  },
+  {
+    key: "auth.email-changed",
+    label: "Email Changed Notification",
+    description: "Sent to the old email address when a user successfully changes their email.",
+    defaultSubject: "Your SalonTraining email has been changed",
+    defaultHtml: `
+      <h1 style="color:#f59e0b;margin-bottom:16px;">Email Address Changed</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">The email address on your SalonTraining account has been changed to <strong>{{newEmail}}</strong> on {{context.timestamp}}.</p>
+      <p style="color:#555;">If you did not make this change, please contact our support team immediately as your account may have been compromised.</p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">Contact support at support@salontraining.com</p>
+    `,
+  },
+  {
+    key: "auth.account-deleted",
+    label: "Account Deleted",
+    description: "Sent when a user permanently deletes their account.",
+    defaultSubject: "Your SalonTraining account has been deleted",
+    defaultHtml: `
+      <h1 style="color:#dc2626;margin-bottom:16px;">Account Deleted</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">Your SalonTraining account has been permanently deleted on {{context.timestamp}}.</p>
+      <p style="color:#555;">All your data has been removed from our systems.</p>
+      <p style="color:#555;">If you ever want to return, you're welcome to create a new account at any time.</p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">Thank you for being part of SalonTraining. We hope to see you again!</p>
     `,
   },
   {

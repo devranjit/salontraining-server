@@ -6,7 +6,7 @@ import { FormSubmission } from "../models/FormSubmission";
 // ===============================
 export const submitContactForm = async (req: Request, res: Response) => {
   try {
-    const { name, email, phone, subject, category, message } = req.body;
+    const { name, email, phone, subject, category, message, guidance } = req.body;
 
     // Basic validation
     if (!name || !email || !message) {
@@ -33,6 +33,7 @@ export const submitContactForm = async (req: Request, res: Response) => {
       subject,
       category: category || "general",
       message,
+      guidance,
       status: "new",
       ipAddress: req.ip || req.headers["x-forwarded-for"] || "unknown",
       userAgent: req.headers["user-agent"] || "unknown",
@@ -217,6 +218,7 @@ export const getSubmissions = async (req: Request, res: Response) => {
         { email: { $regex: search, $options: "i" } },
         { subject: { $regex: search, $options: "i" } },
         { message: { $regex: search, $options: "i" } },
+        { guidance: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -519,6 +521,8 @@ export const getPendingCounts = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
 
 
 

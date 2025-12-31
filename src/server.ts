@@ -33,7 +33,9 @@ import storeCheckoutRoutes from "./routes/storeCheckout.routes";
 import systemLogRoutes from "./routes/systemLog.routes";
 import formSubmissionRoutes from "./routes/formSubmission.routes";
 import proVerificationRoutes from "./routes/proVerification.routes";
+import seekingEmploymentRoutes from "./routes/seekingEmployment.routes";
 import { ensureEmailDefaults } from "./services/emailService";
+import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/firebaseAdmin";
 import "./lib/cloudinary";
 
 
@@ -42,6 +44,8 @@ import "./lib/cloudinary";
 // -----------------------------------------
 let dbConnected = false;
 let emailBootstrapped = false;
+let firebaseInitialized = false;
+
 async function initDB() {
   if (!dbConnected) {
     await connectDB();
@@ -53,6 +57,15 @@ async function initDB() {
       emailBootstrapped = true;
     } catch (err) {
       console.error("Failed to ensure email templates:", err);
+    }
+  }
+  // Initialize Firebase Admin SDK (optional - for phone verification)
+  if (!firebaseInitialized && isFirebaseConfigured()) {
+    try {
+      initializeFirebaseAdmin();
+      firebaseInitialized = true;
+    } catch (err) {
+      console.warn("Firebase Admin initialization skipped:", err);
     }
   }
 }
@@ -128,6 +141,27 @@ app.options("*", cors({
   maxAge: 86400, // Cache preflight for 24 hours
 }));
 
+// Vercel deployment patterns - restrict to specific project subdomains only
+// Set ALLOWED_VERCEL_PROJECTS env var to comma-separated list of project names
+// e.g., "salontraining,salontraining-frontend" to allow salontraining-*.vercel.app
+const ALLOWED_VERCEL_PROJECTS = (process.env.ALLOWED_VERCEL_PROJECTS || "salontraining,salon-frontend")
+  .split(",")
+  .map(p => p.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAllowedVercelDeployment = (origin: string): boolean => {
+  // Extract subdomain from origin like "https://salontraining-abc123.vercel.app"
+  const match = origin.match(/^https?:\/\/([^.]+)\.vercel\.app$/i);
+  if (!match) return false;
+  
+  const subdomain = match[1].toLowerCase();
+  
+  // Check if subdomain starts with any of the allowed project names
+  return ALLOWED_VERCEL_PROJECTS.some(project => 
+    subdomain === project || subdomain.startsWith(`${project}-`)
+  );
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -139,8 +173,8 @@ app.use(
         return callback(null, true);
       }
       
-      // Allow Vercel preview deployments (*.vercel.app)
-      if (origin.endsWith(".vercel.app")) {
+      // Allow specific Vercel preview deployments only (not all *.vercel.app)
+      if (isAllowedVercelDeployment(origin)) {
         return callback(null, true);
       }
       
@@ -190,6 +224,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authLimiter, authRoutes); // Auth routes have stricter rate limiting
 app.use("/api/forms", formSubmissionRoutes);
 app.use("/api/pro-verification", proVerificationRoutes);
+app.use("/api/seeking-employment", seekingEmploymentRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

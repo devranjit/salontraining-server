@@ -6,6 +6,7 @@ import { EMAIL_EVENTS } from "../constants/emailEvents";
 import {
   ensureEmailDefaults,
   sendTestEmail,
+  clearEmailCache,
 } from "../services/emailService";
 
 export const listEmailTemplates = async (req: Request, res: Response) => {
@@ -62,6 +63,9 @@ export const updateEmailTemplate = async (req: Request, res: Response) => {
   template.updatedBy = (req as any).user?.id;
   await template.save();
 
+  // Clear cache so changes take effect immediately
+  clearEmailCache();
+
   res.json({ success: true, template });
 };
 
@@ -107,6 +111,9 @@ export const updateEmailTrigger = async (req: Request, res: Response) => {
   if (typeof enabled === "boolean") trigger.enabled = enabled;
   await trigger.save();
 
+  // Clear cache so changes take effect immediately
+  clearEmailCache();
+
   res.json({ success: true, trigger });
 };
 
@@ -147,6 +154,9 @@ export const resetTemplateToDefault = async (req: Request, res: Response) => {
   template.updatedBy = (req as any).user?.id;
   await template.save();
 
+  // Clear cache so changes take effect immediately
+  clearEmailCache();
+
   res.json({
     success: true,
     message: `Template "${template.key}" reset to default`,
@@ -182,6 +192,9 @@ export const resetAllTemplatesToDefault = async (req: Request, res: Response) =>
       results.push({ key: eventConfig.key, status: "created" });
     }
   }
+
+  // Clear cache so changes take effect immediately
+  clearEmailCache();
 
   res.json({
     success: true,

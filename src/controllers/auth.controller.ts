@@ -10,10 +10,16 @@ import { dispatchEmailEvent } from "../services/emailService";
 // Security constants
 const MAX_LOGIN_ATTEMPTS = 5;
 const MAX_REGISTRATION_ATTEMPTS = 3;
+const MAX_OTP_VERIFY_ATTEMPTS = 5; // Max OTP verification attempts before lockout
 const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
+const OTP_VERIFY_LOCK_TIME = 15 * 60 * 1000; // 15 minutes lockout for OTP verification abuse
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 const REGISTRATION_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours for pending registration
 const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+
+// Password complexity requirements
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/; // At least 1 lowercase, 1 uppercase, 1 digit
 
 // Token expiration times
 const ACCESS_TOKEN_EXPIRY = "1h"; // Short-lived access token
@@ -66,9 +72,31 @@ const generateOtp = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Check if user is locked
+// Check if user is locked (login attempts)
 const isLocked = (user: any) => {
   return user.lockUntil && user.lockUntil > Date.now();
+};
+
+// Check if user is locked for OTP verification (brute-force protection)
+const isOtpVerifyLocked = (user: any) => {
+  return user.otpVerifyLockUntil && user.otpVerifyLockUntil > Date.now();
+};
+
+// Validate password complexity
+const validatePassword = (password: string): { valid: boolean; message: string } => {
+  if (!password || password.length < PASSWORD_MIN_LENGTH) {
+    return { 
+      valid: false, 
+      message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters` 
+    };
+  }
+  if (!PASSWORD_REGEX.test(password)) {
+    return { 
+      valid: false, 
+      message: "Password must contain at least one uppercase letter, one lowercase letter, and one number" 
+    };
+  }
+  return { valid: true, message: "" };
 };
 
 // ------------------------------------------------------
@@ -102,9 +130,10 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid email format" });
     }
 
-    // Password strength validation
-    if (password.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    // Password complexity validation
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ message: passwordValidation.message });
     }
 
     // Check if email already exists as a registered user
@@ -159,25 +188,22 @@ export const registerUser = async (req: Request, res: Response) => {
       { upsert: true, new: true }
     );
 
-    // Send verification email
-    try {
-      await dispatchEmailEvent("auth.registration-otp", {
-        to: normalizedEmail,
-        data: {
-          user: {
-            name: name,
-            email: normalizedEmail,
-          },
-          otp,
+    // Send verification email asynchronously (fire-and-forget) for faster response
+    dispatchEmailEvent("auth.registration-otp", {
+      to: normalizedEmail,
+      data: {
+        user: {
+          name: name,
+          email: normalizedEmail,
         },
-      });
-    } catch (emailError) {
-      console.error("Failed to send registration OTP email:", emailError);
-      return res.status(500).json({
-        message: "Unable to send verification email. Please try again later.",
-      });
-    }
+        otp,
+      },
+    }).catch((emailError) => {
+      // Log error but don't fail - OTP is already stored in pending registration
+      console.error("Failed to send registration OTP email (async):", emailError);
+    });
 
+    // Respond immediately - email is being sent in background
     return res.json({ 
       success: true, 
       requiresVerification: true,
@@ -340,25 +366,22 @@ export const resendRegistrationOtp = async (req: Request, res: Response) => {
     pending.otpExpires = new Date(Date.now() + OTP_EXPIRY);
     await pending.save();
 
-    // Send verification email
-    try {
-      await dispatchEmailEvent("auth.registration-otp", {
-        to: normalizedEmail,
-        data: {
-          user: {
-            name: pending.name,
-            email: normalizedEmail,
-          },
-          otp,
+    // Send verification email asynchronously (fire-and-forget) for faster response
+    dispatchEmailEvent("auth.registration-otp", {
+      to: normalizedEmail,
+      data: {
+        user: {
+          name: pending.name,
+          email: normalizedEmail,
         },
-      });
-    } catch (emailError) {
-      console.error("Failed to resend registration OTP email:", emailError);
-      return res.status(500).json({
-        message: "Unable to send verification email. Please try again later.",
-      });
-    }
+        otp,
+      },
+    }).catch((emailError) => {
+      // Log error but don't fail - OTP is already stored
+      console.error("Failed to resend registration OTP email (async):", emailError);
+    });
 
+    // Respond immediately - email is being sent in background
     return res.json({ 
       success: true, 
       message: "New verification code sent to your email.",
@@ -382,13 +405,12 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 
     const user: any = await User.findOne({ email: email.toLowerCase() });
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    if (user.status === "blocked") {
-      return res.status(423).json({
-        message: "This account has been blocked. Please contact support.",
-        blocked: true,
-      });
+    
+    // Security: Use generic message to prevent user enumeration
+    if (!user) {
+      // Perform a dummy bcrypt compare to prevent timing attacks
+      await bcrypt.compare(password, "$2a$12$dummyhashtopreventtimingattacksxx");
+      return res.status(401).json({ message: "Invalid email or password" });
     }
 
     if (user.status === "blocked") {
@@ -426,8 +448,9 @@ export const loginUser = async (req: Request, res: Response) => {
       
       await user.save();
       const remaining = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
-      return res.status(400).json({ 
-        message: `Invalid password. ${remaining} attempts remaining.`,
+      // Security: Use generic message to prevent user enumeration
+      return res.status(401).json({ 
+        message: "Invalid email or password",
         attemptsRemaining: remaining
       });
     }
@@ -515,18 +538,30 @@ export const sendOtp = async (req: Request, res: Response) => {
     }
 
     const user: any = await User.findOne({ email: email.toLowerCase() });
+    
+    // Security: Always return success to prevent user enumeration
+    // Only actually send OTP if user exists and is not blocked/locked
     if (!user) {
-      return res.status(404).json({ message: "No account found with this email" });
-    }
-
-    if (user.status === "blocked") {
-      return res.status(423).json({
-        message: "This account has been blocked. Please contact support.",
-        blocked: true,
+      // Simulate delay to prevent timing attacks
+      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+      return res.json({ 
+        success: true, 
+        message: "If an account exists with this email, a verification code has been sent.",
+        expiresIn: OTP_EXPIRY / 1000
       });
     }
 
-    // Check if account is locked
+    if (user.status === "blocked") {
+      // Still return generic message to prevent enumeration
+      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+      return res.json({ 
+        success: true, 
+        message: "If an account exists with this email, a verification code has been sent.",
+        expiresIn: OTP_EXPIRY / 1000
+      });
+    }
+
+    // Check if account is locked for login attempts
     if (isLocked(user)) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 60000);
       return res.status(423).json({ 
@@ -535,33 +570,43 @@ export const sendOtp = async (req: Request, res: Response) => {
       });
     }
 
-    // Generate OTP
-    const otp = generateOtp();
-
-    // Store OTP + expiry
-    user.otp = otp;
-    user.otpExpires = new Date(Date.now() + OTP_EXPIRY);
-    await user.save();
-
-    try {
-      await dispatchEmailEvent("auth.otp", {
-        to: email,
-        data: {
-          user: {
-            name: user.name || user.email,
-            email: user.email,
-          },
-          otp,
-          purpose,
-        },
-      });
-    } catch (error) {
-      console.error("Send OTP email failed:", error);
-      return res.status(500).json({
-        message: "Unable to send verification code. Please try again later.",
+    // Check if OTP verification is locked (brute-force protection)
+    if (isOtpVerifyLocked(user)) {
+      const remainingTime = Math.ceil((user.otpVerifyLockUntil - Date.now()) / 60000);
+      return res.status(429).json({ 
+        message: `Too many failed verification attempts. Try again in ${remainingTime} minutes.`,
+        locked: true,
+        retryAfter: remainingTime
       });
     }
 
+    // Generate OTP
+    const otp = generateOtp();
+
+    // Store OTP + expiry and reset verification attempts
+    user.otp = otp;
+    user.otpExpires = new Date(Date.now() + OTP_EXPIRY);
+    user.otpVerifyAttempts = 0; // Reset attempts when new OTP is requested
+    await user.save();
+
+    // Send email asynchronously (fire-and-forget) for faster response
+    // The OTP is already saved, so even if email is delayed, verification will work
+    dispatchEmailEvent("auth.otp", {
+      to: email,
+      data: {
+        user: {
+          name: user.name || user.email,
+          email: user.email,
+        },
+        otp,
+        purpose,
+      },
+    }).catch((error) => {
+      // Log error but don't fail the request - OTP is already stored
+      console.error("Send OTP email failed (async):", error);
+    });
+
+    // Respond immediately - email is being sent in background
     return res.json({ 
       success: true, 
       message: "Verification code sent to your email",
@@ -586,7 +631,20 @@ export const verifyOtp = async (req: Request, res: Response) => {
     }
 
     const user: any = await User.findOne({ email: email.toLowerCase() });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    // Security: Use generic message to prevent user enumeration
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Check if OTP verification is locked due to too many failed attempts
+    if (isOtpVerifyLocked(user)) {
+      const remainingTime = Math.ceil((user.otpVerifyLockUntil - Date.now()) / 60000);
+      return res.status(429).json({ 
+        message: `Too many failed attempts. Try again in ${remainingTime} minutes.`,
+        locked: true,
+        retryAfter: remainingTime
+      });
+    }
 
     if (!user.otp || !user.otpExpires) {
       return res.status(400).json({ message: "No verification code requested" });
@@ -595,17 +653,41 @@ export const verifyOtp = async (req: Request, res: Response) => {
     if (Date.now() > user.otpExpires) {
       user.otp = null;
       user.otpExpires = null;
+      user.otpVerifyAttempts = 0; // Reset attempts when OTP expires
       await user.save();
       return res.status(400).json({ message: "Verification code expired" });
     }
 
+    // Check OTP - with brute-force protection
     if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid verification code" });
+      user.otpVerifyAttempts = (user.otpVerifyAttempts || 0) + 1;
+      
+      // Lock OTP verification if max attempts reached
+      if (user.otpVerifyAttempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+        user.otp = null;
+        user.otpExpires = null;
+        user.otpVerifyAttempts = 0;
+        user.otpVerifyLockUntil = new Date(Date.now() + OTP_VERIFY_LOCK_TIME);
+        await user.save();
+        return res.status(429).json({ 
+          message: "Too many failed attempts. Please request a new verification code after 15 minutes.",
+          locked: true
+        });
+      }
+      
+      await user.save();
+      const remaining = MAX_OTP_VERIFY_ATTEMPTS - user.otpVerifyAttempts;
+      return res.status(400).json({ 
+        message: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+        attemptsRemaining: remaining
+      });
     }
 
-    // Clear OTP after verification
+    // Clear OTP after successful verification
     user.otp = null;
     user.otpExpires = null;
+    user.otpVerifyAttempts = 0;
+    user.otpVerifyLockUntil = null;
     user.loginAttempts = 0;
     user.lockUntil = null;
     user.lastLogin = new Date();
@@ -707,9 +789,10 @@ export const resetPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Password strength validation
-    if (password.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    // Password complexity validation
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ message: passwordValidation.message });
     }
 
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
@@ -754,13 +837,27 @@ export const resetPasswordWithOtp = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Password strength validation
-    if (password.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    // Password complexity validation
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ message: passwordValidation.message });
     }
 
     const user: any = await User.findOne({ email: email.toLowerCase() });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    // Security: Use generic message to prevent user enumeration
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Check if OTP verification is locked due to too many failed attempts
+    if (isOtpVerifyLocked(user)) {
+      const remainingTime = Math.ceil((user.otpVerifyLockUntil - Date.now()) / 60000);
+      return res.status(429).json({ 
+        message: `Too many failed attempts. Try again in ${remainingTime} minutes.`,
+        locked: true,
+        retryAfter: remainingTime
+      });
+    }
 
     if (!user.otp || !user.otpExpires) {
       return res.status(400).json({ message: "No verification code requested" });
@@ -769,18 +866,41 @@ export const resetPasswordWithOtp = async (req: Request, res: Response) => {
     if (Date.now() > user.otpExpires) {
       user.otp = null;
       user.otpExpires = null;
+      user.otpVerifyAttempts = 0;
       await user.save();
       return res.status(400).json({ message: "Verification code expired" });
     }
 
+    // Check OTP - with brute-force protection
     if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid verification code" });
+      user.otpVerifyAttempts = (user.otpVerifyAttempts || 0) + 1;
+      
+      if (user.otpVerifyAttempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+        user.otp = null;
+        user.otpExpires = null;
+        user.otpVerifyAttempts = 0;
+        user.otpVerifyLockUntil = new Date(Date.now() + OTP_VERIFY_LOCK_TIME);
+        await user.save();
+        return res.status(429).json({ 
+          message: "Too many failed attempts. Please request a new verification code after 15 minutes.",
+          locked: true
+        });
+      }
+      
+      await user.save();
+      const remaining = MAX_OTP_VERIFY_ATTEMPTS - user.otpVerifyAttempts;
+      return res.status(400).json({ 
+        message: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+        attemptsRemaining: remaining
+      });
     }
 
     // Update password
     user.password = await bcrypt.hash(password, 12);
     user.otp = null;
     user.otpExpires = null;
+    user.otpVerifyAttempts = 0;
+    user.otpVerifyLockUntil = null;
     user.loginAttempts = 0;
     user.lockUntil = null;
     await user.save();
@@ -839,7 +959,20 @@ export const unlockWithOtp = async (req: Request, res: Response) => {
     }
 
     const user: any = await User.findOne({ email: email.toLowerCase() });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    // Security: Use generic message to prevent user enumeration
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    // Check if OTP verification is locked due to too many failed attempts
+    if (isOtpVerifyLocked(user)) {
+      const remainingTime = Math.ceil((user.otpVerifyLockUntil - Date.now()) / 60000);
+      return res.status(429).json({ 
+        message: `Too many failed attempts. Try again in ${remainingTime} minutes.`,
+        locked: true,
+        retryAfter: remainingTime
+      });
+    }
 
     if (!user.otp || !user.otpExpires) {
       return res.status(400).json({ message: "No verification code requested" });
@@ -848,17 +981,40 @@ export const unlockWithOtp = async (req: Request, res: Response) => {
     if (Date.now() > user.otpExpires) {
       user.otp = null;
       user.otpExpires = null;
+      user.otpVerifyAttempts = 0;
       await user.save();
       return res.status(400).json({ message: "Verification code expired" });
     }
 
+    // Check OTP - with brute-force protection
     if (user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid verification code" });
+      user.otpVerifyAttempts = (user.otpVerifyAttempts || 0) + 1;
+      
+      if (user.otpVerifyAttempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+        user.otp = null;
+        user.otpExpires = null;
+        user.otpVerifyAttempts = 0;
+        user.otpVerifyLockUntil = new Date(Date.now() + OTP_VERIFY_LOCK_TIME);
+        await user.save();
+        return res.status(429).json({ 
+          message: "Too many failed attempts. Please request a new verification code after 15 minutes.",
+          locked: true
+        });
+      }
+      
+      await user.save();
+      const remaining = MAX_OTP_VERIFY_ATTEMPTS - user.otpVerifyAttempts;
+      return res.status(400).json({ 
+        message: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+        attemptsRemaining: remaining
+      });
     }
 
     // Unlock the account
     user.otp = null;
     user.otpExpires = null;
+    user.otpVerifyAttempts = 0;
+    user.otpVerifyLockUntil = null;
     user.loginAttempts = 0;
     user.lockUntil = null;
     await user.save();
@@ -1018,5 +1174,328 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
       success: false, 
       message: "Failed to refresh token" 
     });
+  }
+};
+
+// ---------------------------------------------
+// CHANGE PASSWORD
+// ---------------------------------------------
+export const changePassword = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Current password and new password are required" 
+      });
+    }
+
+    // Password complexity validation
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ 
+        success: false, 
+        message: passwordValidation.message 
+      });
+    }
+
+    const user: any = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Current password is incorrect" 
+      });
+    }
+
+    // Hash and save new password
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    // Send notification email
+    dispatchEmailEvent("auth.password-changed", {
+      to: user.email,
+      data: {
+        user: { name: user.name || user.email, email: user.email },
+        context: { timestamp: new Date().toISOString() },
+      },
+    }).catch((err) => console.error("Password change email failed:", err));
+
+    return res.json({ 
+      success: true, 
+      message: "Password changed successfully" 
+    });
+
+  } catch (err) {
+    console.error("Change password error:", err);
+    return res.status(500).json({ success: false, message: "Failed to change password" });
+  }
+};
+
+// ---------------------------------------------
+// REQUEST EMAIL CHANGE (sends OTP to new email)
+// ---------------------------------------------
+export const requestEmailChange = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    const { newEmail, password } = req.body;
+
+    if (!newEmail || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "New email and password are required" 
+      });
+    }
+
+    const normalizedEmail = newEmail.toLowerCase().trim();
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid email format" 
+      });
+    }
+
+    const user: any = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password is incorrect" 
+      });
+    }
+
+    // Check if new email is same as current
+    if (normalizedEmail === user.email.toLowerCase()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "New email must be different from current email" 
+      });
+    }
+
+    // Check if email is already in use
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "This email is already registered" 
+      });
+    }
+
+    // Generate OTP and store pending email change
+    const otp = generateOtp();
+    user.pendingEmail = normalizedEmail;
+    user.pendingEmailOtp = otp;
+    user.pendingEmailExpires = new Date(Date.now() + OTP_EXPIRY);
+    user.pendingEmailOtpAttempts = 0; // Reset attempts when new OTP is requested
+    await user.save();
+
+    // Send OTP to new email
+    dispatchEmailEvent("auth.email-change-otp", {
+      to: normalizedEmail,
+      data: {
+        user: { name: user.name || user.email, email: normalizedEmail },
+        otp,
+        currentEmail: user.email,
+      },
+    }).catch((err) => console.error("Email change OTP failed:", err));
+
+    return res.json({ 
+      success: true, 
+      message: "Verification code sent to new email",
+      expiresIn: OTP_EXPIRY / 1000
+    });
+
+  } catch (err) {
+    console.error("Request email change error:", err);
+    return res.status(500).json({ success: false, message: "Failed to request email change" });
+  }
+};
+
+// ---------------------------------------------
+// CONFIRM EMAIL CHANGE (verify OTP)
+// ---------------------------------------------
+export const confirmEmailChange = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Verification code is required" 
+      });
+    }
+
+    const user: any = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Check if there's a pending email change
+    if (!user.pendingEmail || !user.pendingEmailOtp) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No pending email change request" 
+      });
+    }
+
+    // Check if OTP expired
+    if (user.pendingEmailExpires < new Date()) {
+      user.pendingEmail = null;
+      user.pendingEmailOtp = null;
+      user.pendingEmailExpires = null;
+      user.pendingEmailOtpAttempts = 0;
+      await user.save();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Verification code expired. Please request a new one." 
+      });
+    }
+
+    // Verify OTP - with brute-force protection
+    if (user.pendingEmailOtp !== otp) {
+      user.pendingEmailOtpAttempts = (user.pendingEmailOtpAttempts || 0) + 1;
+      
+      // Lock email change if max attempts reached
+      if (user.pendingEmailOtpAttempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+        user.pendingEmail = null;
+        user.pendingEmailOtp = null;
+        user.pendingEmailExpires = null;
+        user.pendingEmailOtpAttempts = 0;
+        await user.save();
+        return res.status(429).json({ 
+          success: false, 
+          message: "Too many failed attempts. Please request a new email change.",
+          locked: true
+        });
+      }
+      
+      await user.save();
+      const remaining = MAX_OTP_VERIFY_ATTEMPTS - user.pendingEmailOtpAttempts;
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+        attemptsRemaining: remaining
+      });
+    }
+
+    const oldEmail = user.email;
+    const newEmail = user.pendingEmail;
+
+    // Update email
+    user.email = newEmail;
+    user.pendingEmail = null;
+    user.pendingEmailOtp = null;
+    user.pendingEmailExpires = null;
+    user.pendingEmailOtpAttempts = 0;
+    await user.save();
+
+    // Notify old email about the change
+    dispatchEmailEvent("auth.email-changed", {
+      to: oldEmail,
+      data: {
+        user: { name: user.name || oldEmail, email: oldEmail },
+        newEmail,
+        context: { timestamp: new Date().toISOString() },
+      },
+    }).catch((err) => console.error("Email changed notification failed:", err));
+
+    return res.json({ 
+      success: true, 
+      message: "Email changed successfully",
+      user: { ...user.toObject(), password: undefined }
+    });
+
+  } catch (err) {
+    console.error("Confirm email change error:", err);
+    return res.status(500).json({ success: false, message: "Failed to change email" });
+  }
+};
+
+// ---------------------------------------------
+// DELETE ACCOUNT
+// ---------------------------------------------
+export const deleteAccount = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    const { password, confirmation } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password is required to delete account" 
+      });
+    }
+
+    if (confirmation !== "DELETE") {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Please type DELETE to confirm account deletion" 
+      });
+    }
+
+    const user: any = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Prevent admin/manager deletion through this endpoint
+    if (user.role === "admin" || user.role === "manager") {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Admin and manager accounts cannot be deleted through this method" 
+      });
+    }
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password is incorrect" 
+      });
+    }
+
+    const userEmail = user.email;
+    const userName = user.name;
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    // Clear auth cookies
+    clearAuthCookies(res);
+
+    // Send confirmation email
+    dispatchEmailEvent("auth.account-deleted", {
+      to: userEmail,
+      data: {
+        user: { name: userName || userEmail, email: userEmail },
+        context: { timestamp: new Date().toISOString() },
+      },
+    }).catch((err) => console.error("Account deletion email failed:", err));
+
+    return res.json({ 
+      success: true, 
+      message: "Account deleted successfully" 
+    });
+
+  } catch (err) {
+    console.error("Delete account error:", err);
+    return res.status(500).json({ success: false, message: "Failed to delete account" });
   }
 };

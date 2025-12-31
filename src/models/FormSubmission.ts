@@ -20,6 +20,7 @@ const formSubmissionSchema = new mongoose.Schema(
       default: "general",
     },
     message: { type: String },
+    guidance: { type: String },
 
     // Status tracking
     status: {
@@ -57,6 +58,8 @@ formSubmissionSchema.index({ createdAt: -1 });
 formSubmissionSchema.index({ type: 1, createdAt: -1 });
 
 export const FormSubmission = mongoose.model("FormSubmission", formSubmissionSchema);
+
+
 
 
 

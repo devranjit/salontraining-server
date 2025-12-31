@@ -57,12 +57,27 @@ export const getMailClient = (): MailClient => {
       port: config.port,
       secure: config.secure,
       auth: config.auth,
+      // Performance optimizations
+      pool: true, // Use connection pooling
+      maxConnections: 5, // Max simultaneous connections
+      maxMessages: 100, // Max messages per connection
+      rateDelta: 1000, // How often to recalculate rate limit
+      rateLimit: 10, // Max messages per rateDelta
+      // Timeouts to prevent hanging
+      connectionTimeout: 10000, // 10 seconds to establish connection
+      greetingTimeout: 10000, // 10 seconds for SMTP greeting
+      socketTimeout: 30000, // 30 seconds for socket inactivity
     }),
     from: config.from,
   };
 
   return cachedClient;
 };
+
+
+
+
+
 
 
 
