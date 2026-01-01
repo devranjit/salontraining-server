@@ -209,12 +209,13 @@ export const verifyPhoneOtp = async (req: Request, res: Response) => {
       // Try normalized match (phone might be stored without + or with different formatting)
       if (!user) {
         const users = await User.find({
-          phone: { $exists: true, $ne: null, $nin: [""] }
+          phone: { $exists: true, $nin: [null, ""] }
         }).select("_id phone");
         
         for (const u of users) {
-          if (!u.phone) continue; // Skip if phone is undefined
-          const userPhoneNormalized = normalizePhone(u.phone);
+          const uPhone = u.phone;
+          if (!uPhone) continue; // Skip if phone is undefined or empty
+          const userPhoneNormalized = normalizePhone(uPhone);
           // Check if normalized versions match (with or without +)
           if (userPhoneNormalized === phoneNormalized ||
               userPhoneNormalized === phoneNormalized.replace(/^\+/, "") ||
@@ -350,7 +351,7 @@ export const linkPhoneToAccount = async (req: any, res: Response) => {
         phoneVerified: true,
         phoneVerifiedAt: new Date(),
         firebasePhoneUid: decodedToken.uid,
-        phoneCountryCode: parseCountryCode(phone),
+        phoneCountryCode: parseCountryCode(phone) || "",
       },
       { new: true }
     );
