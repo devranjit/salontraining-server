@@ -2,9 +2,12 @@
   "name": "salon-backend",
   "version": "1.0.0",
   "type": "commonjs",
-  "scripts": {
-    "dev": "ts-node src/dev.ts"
-  },
+ "scripts": {
+  "dev": "ts-node src/dev.ts",
+  "build": "tsc",
+  "start": "node dist/server.js"
+}
+,
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",

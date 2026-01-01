@@ -209,10 +209,11 @@ export const verifyPhoneOtp = async (req: Request, res: Response) => {
       // Try normalized match (phone might be stored without + or with different formatting)
       if (!user) {
         const users = await User.find({
-          phone: { $exists: true, $ne: null, $ne: "" }
+          phone: { $exists: true, $ne: null, $nin: [""] }
         }).select("_id phone");
         
         for (const u of users) {
+          if (!u.phone) continue; // Skip if phone is undefined
           const userPhoneNormalized = normalizePhone(u.phone);
           // Check if normalized versions match (with or without +)
           if (userPhoneNormalized === phoneNormalized ||
@@ -230,7 +231,7 @@ export const verifyPhoneOtp = async (req: Request, res: Response) => {
         user.phoneVerified = true;
         user.phoneVerifiedAt = new Date();
         user.firebasePhoneUid = decodedToken.uid;
-        user.phoneCountryCode = countryCode;
+        if (countryCode) user.phoneCountryCode = countryCode;
         await user.save();
       }
     }

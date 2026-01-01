@@ -24,3 +24,5 @@ export const EducationCategory = mongoose.model("EducationCategory", educationCa
 
 
 
+
+
