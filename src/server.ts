@@ -38,34 +38,35 @@ import { ensureEmailDefaults } from "./services/emailService";
 import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/firebaseAdmin";
 import "./lib/cloudinary";
 
+// -----------------------------------------
+// PORT CONFIGURATION
+// -----------------------------------------
+const PORT = process.env.PORT || 5000;
 
 // -----------------------------------------
-// LAZY DB CONNECT (REQUIRED FOR VERCEL)
+// BOOTSTRAP FUNCTIONS
 // -----------------------------------------
-let dbConnected = false;
-let emailBootstrapped = false;
-let firebaseInitialized = false;
+async function bootstrap(): Promise<void> {
+  // 1. Connect to MongoDB
+  await connectDB();
+  console.log("✓ Database connected");
 
-async function initDB() {
-  if (!dbConnected) {
-    await connectDB();
-    dbConnected = true;
+  // 2. Ensure email templates exist
+  try {
+    await ensureEmailDefaults();
+    console.log("✓ Email templates initialized");
+  } catch (err) {
+    console.error("⚠ Failed to ensure email templates:", err);
+    // Non-fatal: continue server startup
   }
-  if (!emailBootstrapped) {
-    try {
-      await ensureEmailDefaults();
-      emailBootstrapped = true;
-    } catch (err) {
-      console.error("Failed to ensure email templates:", err);
-    }
-  }
-  // Initialize Firebase Admin SDK (optional - for phone verification)
-  if (!firebaseInitialized && isFirebaseConfigured()) {
+
+  // 3. Initialize Firebase Admin SDK (optional)
+  if (isFirebaseConfigured()) {
     try {
       initializeFirebaseAdmin();
-      firebaseInitialized = true;
+      console.log("✓ Firebase Admin initialized");
     } catch (err) {
-      console.warn("Firebase Admin initialization skipped:", err);
+      console.warn("⚠ Firebase Admin initialization skipped:", err);
     }
   }
 }
@@ -188,13 +189,6 @@ app.use(
   })
 );
 
-// -----------------------------------------
-// CONNECT DB BEFORE HANDLING ANY REQUEST
-// -----------------------------------------
-app.use(async (req, res, next) => {
-  await initDB();
-  next();
-});
 
 // -----------------------------------------
 // API ROUTES
@@ -232,9 +226,30 @@ app.use("/api/seeking-employment", seekingEmploymentRoutes);
 app.get("/", (req: Request, res: Response) => {
   res.json({
     success: true,
-    message: "SalonTraining API is running (Vercel Serverless)...",
+    message: "SalonTraining API is running",
+    port: PORT,
+    env: process.env.NODE_ENV || "development",
   });
 });
 
-// DO NOT USE app.listen() — Vercel runs serverless
+// -----------------------------------------
+// START SERVER (VPS / PM2 MODE)
+// -----------------------------------------
+// Only start listening if this file is run directly (not imported)
+if (require.main === module) {
+  bootstrap()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`✓ Server listening on port ${PORT}`);
+        console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
+      });
+    })
+    .catch((err) => {
+      console.error("✗ Failed to start server:", err);
+      process.exit(1);
+    });
+}
+
+// Export for Vercel serverless (api/index.ts imports this)
 export default app;
+
