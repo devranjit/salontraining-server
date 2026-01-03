@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { TrainerListing } from "../models/TrainerListing";
 import User from "../models/User";
 import mongoose from "mongoose";
+import { createNotification, notifyAdmins } from "./notification.controller";
 
 const normalizeCategory = (value?: string) => {
   const trimmed = (value || "").trim();
@@ -47,6 +48,15 @@ export const createTrainer = async (req: any, res: Response) => {
       tags,
       status: "pending",
     });
+
+    // Notify admins about new submission
+    notifyAdmins(
+      "new_submission",
+      "New Trainer Submission",
+      `${req.user.name || req.user.email} submitted a new trainer listing "${listing.title}" for review.`,
+      "/dashboard/admin/trainers",
+      { listingId: listing._id, listingType: "trainer", submittedBy: req.user.id }
+    ).catch((err) => console.error("Admin notification error:", err));
 
     res.json({ success: true, listing });
   } catch (err: any) {
@@ -233,6 +243,18 @@ export const approveTrainer = async (req: Request, res: Response) => {
       { new: true }
     );
 
+    // Send notification to the listing owner
+    if (listing?.owner) {
+      createNotification(
+        listing.owner,
+        "listing_approved",
+        "Trainer Listing Approved",
+        `Your trainer listing "${listing.title}" has been approved and is now live!`,
+        "/dashboard/my-trainers",
+        { listingId: listing._id, listingType: "trainer" }
+      ).catch((err) => console.error("Notification error:", err));
+    }
+
     res.json({ success: true, listing });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
@@ -249,6 +271,18 @@ export const rejectTrainer = async (req: Request, res: Response) => {
       { status: "rejected" },
       { new: true }
     );
+
+    // Send notification to the listing owner
+    if (listing?.owner) {
+      createNotification(
+        listing.owner,
+        "listing_rejected",
+        "Trainer Listing Rejected",
+        `Your trainer listing "${listing.title}" has been rejected. Please review and resubmit.`,
+        "/dashboard/my-trainers",
+        { listingId: listing._id, listingType: "trainer" }
+      ).catch((err) => console.error("Notification error:", err));
+    }
 
     res.json({ success: true, listing });
   } catch (err: any) {

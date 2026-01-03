@@ -9,13 +9,14 @@ export async function updateProfile(req: any, res: Response) {
     const allowedFields = [
       "first_name", "last_name", "phone", "business", 
       "instagram", "facebook", "category", "portfolio",
-      "country", "state", "city"
+      "country", "state", "city", "avatar"
     ];
 
     const fields: Record<string, any> = {};
     for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        fields[field] = req.body[field];
+      const value = req.body[field];
+      if (value !== undefined) {
+        fields[field] = typeof value === "string" ? value.trim() : value;
       }
     }
 

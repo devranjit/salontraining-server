@@ -10,7 +10,6 @@ import {
   forgotPassword,
   resetPassword,
   resetPasswordWithOtp,
-  unlockAccount,
   unlockWithOtp,
   verifyRegistrationOtp,
   resendRegistrationOtp,
@@ -28,21 +27,10 @@ import {
   getPhoneStats,
   detectInputType,
 } from "../controllers/phoneAuth.controller";
-import { protect, adminOnly, managerOrAdmin } from "../middleware/auth";
+import { protect, adminOnly } from "../middleware/auth";
 import { updateProfile } from "../controllers/profile.controller";
-import { 
-  getAllUsers, 
-  getUserById, 
-  createUser,
-  updateUser, 
-  deleteUser, 
-  changeUserRole,
-  getUserStats,
-  updateUserStatus,
-  searchUsers,
-  getLockedUsers,
-  unlockLockedUser,
-} from "../controllers/user.controller";
+// Note: User management routes moved to user.routes.ts for better organization
+// and to avoid auth rate limiting on admin operations
 
 const router = express.Router();
 
@@ -90,20 +78,7 @@ router.post("/request-email-change", protect, requestEmailChange);
 router.post("/confirm-email-change", protect, confirmEmailChange);
 router.delete("/delete-account", protect, deleteAccount);
 
-// Admin user management routes
-router.get("/users", protect, adminOnly, getAllUsers);
-router.get("/users/stats", protect, adminOnly, getUserStats);
-router.get("/users/search", protect, managerOrAdmin, searchUsers);
-router.get("/users/:id", protect, adminOnly, getUserById);
-router.post("/users", protect, adminOnly, createUser);
-router.put("/users/:id", protect, adminOnly, updateUser);
-router.delete("/users/:id", protect, adminOnly, deleteUser);
-router.patch("/users/:id/role", protect, adminOnly, changeUserRole);
-router.patch("/users/:id/status", protect, adminOnly, updateUserStatus);
-router.post("/users/unlock", protect, adminOnly, unlockAccount); // Admin unlock
-
-// Locked users management (Admin)
-router.get("/users/locked", protect, adminOnly, getLockedUsers);
-router.post("/users/locked/:id/unlock", protect, adminOnly, unlockLockedUser);
+// Note: Admin user management routes moved to /api/users (user.routes.ts)
+// This removes rate limiting restrictions for admin user creation/management
 
 export default router;

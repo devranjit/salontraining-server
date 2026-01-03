@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { Event } from "../models/Event";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
@@ -160,8 +161,13 @@ export const getFeaturedEvents = async (req: Request, res: Response) => {
 // ===============================
 export const getSingleEvent = async (req: Request, res: Response) => {
   try {
-    const event = await Event.findById(req.params.id)
-      .populate("owner", "name email");
+    const { id } = req.params;
+
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { slug: id }] }
+      : { slug: id };
+
+    const event = await Event.findOne(query).populate("owner", "name email");
 
     if (!event) {
       return res.status(404).json({ success: false, message: "Event not found" });

@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { Job } from "../models/Job";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
@@ -125,8 +126,12 @@ export const getSingleJob = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const job = await Job.findById(id)
-      .populate("owner", "name email");
+    // Accept both slug and ObjectId
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { $or: [{ _id: id }, { slug: id }] }
+      : { slug: id };
+
+    const job = await Job.findOne(query).populate("owner", "name email");
 
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });

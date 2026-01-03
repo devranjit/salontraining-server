@@ -101,10 +101,25 @@ router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteTrainer);
 router.get("/admin/:id", protect, managerOrAdmin, adminGetTrainerById);
 
 
-/* ---------------------- CATCH SINGLE TRAINER ---------------------- */
-router.get("/:id", async (req, res) => {
+/* ---------------------- CATCH SINGLE TRAINER (supports ID or slug) ---------------------- */
+router.get("/:idOrSlug", async (req, res) => {
   try {
-    const trainer = await TrainerListing.findById(req.params.id);
+    const { idOrSlug } = req.params;
+    
+    // Try to find by ID first (if it's a valid ObjectId), then by slug
+    let trainer = null;
+    
+    // Check if it's a valid MongoDB ObjectId
+    const isObjectId = /^[a-f\d]{24}$/i.test(idOrSlug);
+    
+    if (isObjectId) {
+      trainer = await TrainerListing.findById(idOrSlug);
+    }
+    
+    // If not found by ID, try by slug
+    if (!trainer) {
+      trainer = await TrainerListing.findOne({ slug: idOrSlug });
+    }
 
     if (!trainer) {
       return res

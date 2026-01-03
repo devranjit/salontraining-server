@@ -6,6 +6,7 @@ import { Listing } from "../models/Listing";
 import { dispatchEmailEvent } from "../services/emailService";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
+import { createNotification } from "../controllers/notification.controller";
 
 const router = Router();
 
@@ -141,6 +142,18 @@ router.put("/listings/:id/approve", protect, adminOnly, async (req, res) => {
           },
         }).catch((err) => console.error("listing approve email failed:", err));
       }
+
+      // Send notification to listing owner
+      if ((listing.owner as any)?._id) {
+        createNotification(
+          (listing.owner as any)._id,
+          "listing_approved",
+          "Listing Approved",
+          `Your listing "${listing.title}" has been approved and is now live!`,
+          `/dashboard/my-trainers`,
+          { listingId: listing._id }
+        ).catch((err) => console.error("Notification error:", err));
+      }
     }
 
     res.json({ success: true, listing });
@@ -177,6 +190,18 @@ router.put("/listings/:id/reject", protect, adminOnly, async (req, res) => {
             },
           },
         }).catch((err) => console.error("listing reject email failed:", err));
+      }
+
+      // Send notification to listing owner
+      if ((listing.owner as any)?._id) {
+        createNotification(
+          (listing.owner as any)._id,
+          "listing_rejected",
+          "Listing Rejected",
+          `Your listing "${listing.title}" has been rejected. Reason: ${reason}`,
+          `/dashboard/my-trainers`,
+          { listingId: listing._id, reason }
+        ).catch((err) => console.error("Notification error:", err));
       }
     }
 

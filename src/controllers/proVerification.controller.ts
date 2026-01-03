@@ -106,6 +106,16 @@ export const listProVerifications = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getPendingProVerificationCounts = async (_req: AuthRequest, res: Response) => {
+  try {
+    const pending = await ProVerification.countDocuments({ status: "pending" });
+    return res.json({ success: true, counts: { pending } });
+  } catch (error) {
+    console.error("getPendingProVerificationCounts error:", error);
+    return res.status(500).json({ success: false, message: "Failed to load pending counts" });
+  }
+};
+
 export const updateProVerificationStatus = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?._id) {
@@ -263,6 +273,7 @@ export const adminApproveUserForProVerification = async (req: AuthRequest, res: 
     return res.status(500).json({ success: false, message: "Failed to approve user" });
   }
 };
+
 
 
 

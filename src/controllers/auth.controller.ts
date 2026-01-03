@@ -6,6 +6,7 @@ import PendingRegistration from "../models/PendingRegistration";
 import { TokenBlacklist } from "../models/TokenBlacklist";
 import { Request, Response } from "express";
 import { dispatchEmailEvent } from "../services/emailService";
+import { notifyAdmins } from "./notification.controller";
 
 // Security constants
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -319,6 +320,15 @@ export const verifyRegistrationOtp = async (req: Request, res: Response) => {
         },
       },
     }).catch((err) => console.error("Welcome email failed:", err));
+
+    // Notify admins about new user registration
+    notifyAdmins(
+      "new_user",
+      "New User Registered",
+      `${safeUser.name || safeUser.email} has registered on the platform.`,
+      "/dashboard/users",
+      { userId: user._id, email: safeUser.email }
+    ).catch((err) => console.error("Admin notification error:", err));
 
     return res.json({ 
       success: true, 

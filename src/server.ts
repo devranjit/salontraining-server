@@ -34,6 +34,8 @@ import systemLogRoutes from "./routes/systemLog.routes";
 import formSubmissionRoutes from "./routes/formSubmission.routes";
 import proVerificationRoutes from "./routes/proVerification.routes";
 import seekingEmploymentRoutes from "./routes/seekingEmployment.routes";
+import notificationRoutes from "./routes/notification.routes";
+import userRoutes from "./routes/user.routes";
 import { ensureEmailDefaults } from "./services/emailService";
 import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/firebaseAdmin";
 import "./lib/cloudinary";
@@ -104,7 +106,7 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Strict rate limit for auth endpoints
+// Strict rate limit for public auth endpoints (login, register, password reset)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // 20 requests per window for auth
@@ -216,9 +218,11 @@ app.use("/api/admin/recycle-bin", recycleBinRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authLimiter, authRoutes); // Auth routes have stricter rate limiting
+app.use("/api/users", userRoutes); // Admin user management (no rate limiting)
 app.use("/api/forms", formSubmissionRoutes);
 app.use("/api/pro-verification", proVerificationRoutes);
 app.use("/api/seeking-employment", seekingEmploymentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 
+// Helper to generate a URL-friendly slug from the title
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "") // remove non-word characters
+    .replace(/\s+/g, "-") // spaces to hyphens
+    .replace(/-+/g, "-") // collapse multiple hyphens
+    .substring(0, 100); // cap length for sanity
+}
+
 const jobSchema = new mongoose.Schema(
   {
     owner: {
@@ -86,6 +97,9 @@ const jobSchema = new mongoose.Schema(
     specialOffers: { type: String },
     videoUrl: { type: String },
 
+    // SEO / canonical
+    slug: { type: String, index: true, unique: true, sparse: true },
+
     // Application deadline
     deadline: { type: Date },
 
@@ -116,6 +130,33 @@ const jobSchema = new mongoose.Schema(
 // Indexes for efficient queries
 jobSchema.index({ status: 1, featured: 1 });
 jobSchema.index({ category: 1 });
+
+// Pre-save hook to generate unique slug from title
+jobSchema.pre("save", async function (next) {
+  try {
+    // Only generate when new or title changed
+    if (this.isNew || this.isModified("title")) {
+      const base = generateSlug(this.title || "job");
+      let slug = base;
+      let counter = 1;
+
+      // Ensure uniqueness
+      while (true) {
+        const existing = await mongoose
+          .model("Job")
+          .findOne({ slug, _id: { $ne: this._id } });
+        if (!existing) break;
+        slug = `${base}-${counter}`;
+        counter += 1;
+      }
+
+      this.slug = slug;
+    }
+    next();
+  } catch (err) {
+    next(err as any);
+  }
+});
 jobSchema.index({ jobType: 1 });
 jobSchema.index({ city: 1, state: 1 });
 jobSchema.index({ "coords.lat": 1, "coords.lng": 1 });

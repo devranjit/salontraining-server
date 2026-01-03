@@ -50,6 +50,7 @@ const userSchema = new mongoose.Schema(
     country: { type: String, default: "" },
     state: { type: String, default: "" },
     city: { type: String, default: "" },
+    avatar: { type: String, default: "" },
 
     // OTP login fields
     otp: { type: String, default: null },

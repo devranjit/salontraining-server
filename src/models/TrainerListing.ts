@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 
+// Helper function to generate slug from title
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '') // Remove special characters
+    .replace(/\s+/g, '-')     // Replace spaces with hyphens
+    .replace(/-+/g, '-')      // Replace multiple hyphens with single
+    .substring(0, 100);       // Limit length
+}
+
 const trainerListingSchema = new mongoose.Schema(
   {
     owner: {
@@ -10,6 +21,7 @@ const trainerListingSchema = new mongoose.Schema(
 
     // Basic Info
     title: { type: String, required: true },
+    slug: { type: String, unique: true, sparse: true },
     description: { type: String, default: "" },
 
     // Contact
@@ -97,9 +109,33 @@ const trainerListingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Pre-save hook to auto-generate slug from title
+trainerListingSchema.pre('save', async function(next) {
+  if (this.isNew || this.isModified('title')) {
+    let baseSlug = generateSlug(this.title);
+    let slug = baseSlug;
+    let counter = 1;
+    
+    // Check for existing slugs and make unique
+    while (true) {
+      const existing = await mongoose.model('TrainerListing').findOne({ 
+        slug, 
+        _id: { $ne: this._id } 
+      });
+      if (!existing) break;
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    
+    this.slug = slug;
+  }
+  next();
+});
+
 // Index for efficient queries
 trainerListingSchema.index({ status: 1, featured: 1 });
 trainerListingSchema.index({ category: 1 });
+trainerListingSchema.index({ slug: 1 });
 trainerListingSchema.index({ "coords.lat": 1, "coords.lng": 1 });
 
 export const TrainerListing = mongoose.model("TrainerListing", trainerListingSchema);

@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 
+// Helper to generate a URL-friendly slug
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .substring(0, 100);
+}
+
 const eventSchema = new mongoose.Schema(
   {
     owner: {
@@ -98,6 +109,9 @@ const eventSchema = new mongoose.Schema(
 
     // View tracking
     views: { type: Number, default: 0 },
+
+    // SEO slug
+    slug: { type: String, index: true, unique: true, sparse: true },
   },
   { timestamps: true }
 );
@@ -108,5 +122,30 @@ eventSchema.index({ startDate: 1 });
 eventSchema.index({ category: 1 });
 eventSchema.index({ "coords.lat": 1, "coords.lng": 1 });
 eventSchema.index({ city: 1, state: 1 });
+
+// Pre-save slug generation
+eventSchema.pre("save", async function (next) {
+  try {
+    if (this.isNew || this.isModified("title")) {
+      const base = generateSlug(this.title || "event");
+      let slug = base;
+      let counter = 1;
+
+      while (true) {
+        const existing = await mongoose
+          .model("Event")
+          .findOne({ slug, _id: { $ne: this._id } });
+        if (!existing) break;
+        slug = `${base}-${counter}`;
+        counter += 1;
+      }
+
+      this.slug = slug;
+    }
+    next();
+  } catch (err) {
+    next(err as any);
+  }
+});
 
 export const Event = mongoose.model("Event", eventSchema);
