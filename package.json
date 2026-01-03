@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "commonjs",
  "scripts": {
-  "dev": "ts-node src/dev.ts",
+  "dev": "ts-node src/server.ts",
   "build": "tsc",
   "start": "node dist/src/server.js"
 }
