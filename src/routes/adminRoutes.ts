@@ -12,9 +12,9 @@ const router = Router();
 
 const FRONTEND_BASE_URL = (
   process.env.FRONTEND_URL ||
-  (process.env.NODE_ENV === "production"
-    ? "https://salontraining.com"
-    : "http://localhost:5173")
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:5173"
+    : "https://salontraining.com")
 ).replace(/\/+$/, "");
 
 router.get("/users", protect, adminOnly, async (req, res) => {
@@ -255,14 +255,38 @@ router.put("/listings/:id/expire", protect, adminOnly, async (req, res) => {
 // ADMIN — Dashboard Stats
 router.get("/stats", protect, adminOnly, async (req, res) => {
   try {
-    const total = await Listing.countDocuments();
-    const pending = await Listing.countDocuments({ status: "pending" });
-    const approved = await Listing.countDocuments({ status: "approved" });
+    const totalStart = Date.now();
+    console.log("[Admin Stats] Starting /stats endpoint...");
 
+    let start = Date.now();
+    const total = await Listing.countDocuments();
+    console.log(`[Admin Stats] Listing.countDocuments() took ${Date.now() - start}ms`);
+
+    start = Date.now();
+    const pending = await Listing.countDocuments({ status: "pending" });
+    console.log(`[Admin Stats] Listing.countDocuments(pending) took ${Date.now() - start}ms`);
+
+    start = Date.now();
+    const approved = await Listing.countDocuments({ status: "approved" });
+    console.log(`[Admin Stats] Listing.countDocuments(approved) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const trainers = await Listing.countDocuments({ category: "trainer" });
+    console.log(`[Admin Stats] Listing.countDocuments(trainer) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const events = await Listing.countDocuments({ category: "event" });
+    console.log(`[Admin Stats] Listing.countDocuments(event) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const inperson = await Listing.countDocuments({ category: "inperson" });
+    console.log(`[Admin Stats] Listing.countDocuments(inperson) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const jobs = await Listing.countDocuments({ category: "job" });
+    console.log(`[Admin Stats] Listing.countDocuments(job) took ${Date.now() - start}ms`);
+
+    console.log(`[Admin Stats] ===== TOTAL /stats took ${Date.now() - totalStart}ms =====`);
 
     res.json({
       success: true,
@@ -284,10 +308,26 @@ router.get("/stats", protect, adminOnly, async (req, res) => {
 
 router.get("/pending-counts", protect, adminOnly, async (req, res) => {
   try {
+    const totalStart = Date.now();
+    console.log("[Admin Stats] Starting /pending-counts endpoint...");
+
+    let start = Date.now();
     const trainers = await Listing.countDocuments({ category: "trainer", status: "pending" });
+    console.log(`[Admin Stats] Listing.countDocuments(trainer, pending) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const events = await Listing.countDocuments({ category: "event", status: "pending" });
+    console.log(`[Admin Stats] Listing.countDocuments(event, pending) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const inperson = await Listing.countDocuments({ category: "inperson", status: "pending" });
+    console.log(`[Admin Stats] Listing.countDocuments(inperson, pending) took ${Date.now() - start}ms`);
+
+    start = Date.now();
     const jobs = await Listing.countDocuments({ category: "job", status: "pending" });
+    console.log(`[Admin Stats] Listing.countDocuments(job, pending) took ${Date.now() - start}ms`);
+
+    console.log(`[Admin Stats] ===== TOTAL /pending-counts took ${Date.now() - totalStart}ms =====`);
 
     res.json({
       success: true,

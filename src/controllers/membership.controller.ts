@@ -12,7 +12,7 @@ const stripe = () => getStripeClient();
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL ||
-  (process.env.NODE_ENV === "production" ? "https://salontraining.com" : "http://localhost:5173");
+  (process.env.NODE_ENV === "development" ? "http://localhost:5173" : "https://salontraining.com");
 
 const buildSuccessUrl = (planId: string) =>
   `${FRONTEND_URL}/dashboard/membership?status=success&plan=${planId}`;

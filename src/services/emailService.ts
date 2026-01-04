@@ -60,9 +60,9 @@ const appMeta = () => ({
     name: "SalonTraining",
     url:
       process.env.FRONTEND_URL ||
-      (process.env.NODE_ENV === "production"
-        ? "https://salontraining.com"
-        : "http://localhost:5173"),
+      (process.env.NODE_ENV === "development"
+        ? "http://localhost:5173"
+        : "https://salontraining.com"),
   },
 });
 
