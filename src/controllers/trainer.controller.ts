@@ -599,22 +599,65 @@ export async function adminChangeTrainerOwner(req: Request, res: Response) {
 // ===============================
 export async function getAllTrainers(req: Request, res: Response) {
   try {
-    const { search, category, city, sort, page = 1, limit = 12 } = req.query;
+    const { 
+      search, 
+      searchType, // 'tag', 'category', 'title', 'city', or undefined for general search
+      category, 
+      city, 
+      tag, // exact tag search
+      sort, 
+      page = 1, 
+      limit = 12 
+    } = req.query;
+    
     const query: any = { status: { $in: ["approved", "published"] } };
 
-    if (category) query.category = category;
-    if (city) query.city = city;
+    // Category filter (exact match, case-insensitive)
+    if (category) {
+      query.category = { $regex: `^${category}$`, $options: "i" };
+    }
+    
+    // City filter
+    if (city) query.city = { $regex: city as string, $options: "i" };
+    
+    // Tag filter (exact match, case-insensitive)
+    if (tag) {
+      query.tags = { $regex: `^${tag}$`, $options: "i" };
+    }
+    
+    // Search with type-specific behavior
     if (search) {
-      // Escape special regex characters and use word boundary for exact word match
-      const escapedSearch = (search as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const wordBoundaryRegex = `\\b${escapedSearch}\\b`;
-      query.$or = [
-        { title: { $regex: wordBoundaryRegex, $options: "i" } },
-        { description: { $regex: wordBoundaryRegex, $options: "i" } },
-        { city: { $regex: wordBoundaryRegex, $options: "i" } },
-        { category: { $regex: wordBoundaryRegex, $options: "i" } },
-        { state: { $regex: wordBoundaryRegex, $options: "i" } },
-      ];
+      const searchTerm = (search as string).trim();
+      const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      if (searchType === 'tag') {
+        // Exact tag match (case-insensitive)
+        query.tags = { $regex: `^${escapedSearch}$`, $options: "i" };
+      } else if (searchType === 'category') {
+        // Exact category match (case-insensitive)
+        query.category = { $regex: `^${escapedSearch}$`, $options: "i" };
+      } else if (searchType === 'title') {
+        // Partial title match
+        query.title = { $regex: escapedSearch, $options: "i" };
+      } else if (searchType === 'city') {
+        // Partial city/state match
+        query.$or = [
+          { city: { $regex: escapedSearch, $options: "i" } },
+          { state: { $regex: escapedSearch, $options: "i" } },
+        ];
+      } else {
+        // General search: partial match for title/city, exact for tags/categories
+        const partialRegex = { $regex: escapedSearch, $options: "i" };
+        const exactRegex = { $regex: `^${escapedSearch}$`, $options: "i" };
+        
+        query.$or = [
+          { title: partialRegex },
+          { city: partialRegex },
+          { state: partialRegex },
+          { tags: exactRegex },
+          { category: exactRegex },
+        ];
+      }
     }
 
     const baseSort = { featured: -1 }; // keep featured trainers first
@@ -622,6 +665,8 @@ export async function getAllTrainers(req: Request, res: Response) {
       newest: { ...baseSort, createdAt: -1 },
       oldest: { ...baseSort, createdAt: 1 },
       popular: { ...baseSort, views: -1, createdAt: -1 },
+      az: { ...baseSort, title: 1 },
+      za: { ...baseSort, title: -1 },
     };
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -667,34 +712,83 @@ export async function getFeaturedTrainers(req: Request, res: Response) {
 }
 
 // ===============================
-// PUBLIC — Suggestions (categories & tags)
+// PUBLIC — Suggestions (categories, tags, titles, cities)
 // ===============================
 export async function getTrainerSuggestions(req: Request, res: Response) {
   try {
     const { search = "" } = req.query;
-    const regex = new RegExp(String(search), "i");
+    const searchTerm = String(search).trim();
+    
+    if (!searchTerm || searchTerm.length < 2) {
+      return res.json({
+        success: true,
+        categories: [],
+        tags: [],
+        titles: [],
+        cities: [],
+      });
+    }
 
-    const [categoriesRaw, tagsRaw] = await Promise.all([
-      TrainerListing.distinct("category", { category: { $ne: "" } }),
-      TrainerListing.distinct("tags"),
+    const regex = new RegExp(searchTerm, "i");
+
+    // Get all distinct values from published trainers
+    const [categoriesRaw, tagsRaw, titlesRaw, citiesRaw, statesRaw] = await Promise.all([
+      TrainerListing.distinct("category", { 
+        category: { $ne: "" },
+        status: { $in: ["approved", "published"] }
+      }),
+      TrainerListing.distinct("tags", {
+        status: { $in: ["approved", "published"] }
+      }),
+      TrainerListing.find({
+        status: { $in: ["approved", "published"] },
+        title: regex
+      }).select("title").limit(10).lean(),
+      TrainerListing.distinct("city", { 
+        city: { $ne: "" },
+        status: { $in: ["approved", "published"] }
+      }),
+      TrainerListing.distinct("state", { 
+        state: { $ne: "" },
+        status: { $in: ["approved", "published"] }
+      }),
     ]);
 
+    // Filter and dedupe categories
     const categories = (categoriesRaw as string[])
       .map((c) => (c || "").trim())
       .filter(Boolean)
       .filter((c) => regex.test(c));
 
+    // Filter and dedupe tags
     const tags = (tagsRaw as string[])
+      .flat()
       .map((t) => (t || "").trim())
       .filter(Boolean)
       .filter((t) => regex.test(t));
+
+    // Extract titles
+    const titles = titlesRaw.map((t: any) => t.title);
+
+    // Filter cities and states, combine as locations
+    const cities = (citiesRaw as string[])
+      .map((c) => (c || "").trim())
+      .filter(Boolean)
+      .filter((c) => regex.test(c));
+
+    const states = (statesRaw as string[])
+      .map((s) => (s || "").trim())
+      .filter(Boolean)
+      .filter((s) => regex.test(s));
 
     const unique = (arr: string[]) => Array.from(new Set(arr));
 
     return res.json({
       success: true,
-      categories: unique(categories),
-      tags: unique(tags),
+      categories: unique(categories).slice(0, 10),
+      tags: unique(tags).slice(0, 10),
+      titles: unique(titles).slice(0, 10),
+      cities: unique([...cities, ...states]).slice(0, 10),
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
