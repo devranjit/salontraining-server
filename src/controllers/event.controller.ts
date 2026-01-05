@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Event } from "../models/Event";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 const normalizeCategory = (value?: string) => (value || "").trim();
 const normalizeTags = (tags: any): string[] => {
@@ -488,8 +489,22 @@ export const adminGetEventById = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Update Event
 // ===============================
-export const adminUpdateEvent = async (req: Request, res: Response) => {
+export const adminUpdateEvent = async (req: any, res: Response) => {
   try {
+    // Get current state for version history
+    const currentEvent = await Event.findById(req.params.id);
+    if (!currentEvent) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    await createVersionSnapshot("event", currentEvent, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
+
     const updateData: any = { ...req.body };
 
     if (updateData.category !== undefined) {
@@ -512,10 +527,6 @@ export const adminUpdateEvent = async (req: Request, res: Response) => {
       updateData,
       { new: true }
     );
-
-    if (!event) {
-      return res.status(404).json({ success: false, message: "Event not found" });
-    }
 
     return res.json({ success: true, event });
   } catch (err: any) {
@@ -588,8 +599,19 @@ export const adminDeleteEvent = async (req: any, res: Response) => {
 // ===============================
 // ADMIN — Approve Event
 // ===============================
-export const approveEvent = async (req: Request, res: Response) => {
+export const approveEvent = async (req: any, res: Response) => {
   try {
+    const currentEvent = await Event.findById(req.params.id);
+    if (currentEvent) {
+      await createVersionSnapshot("event", currentEvent, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "approved" },
+      });
+    }
+
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { status: "approved" },
@@ -609,8 +631,19 @@ export const approveEvent = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Publish Event
 // ===============================
-export const publishEvent = async (req: Request, res: Response) => {
+export const publishEvent = async (req: any, res: Response) => {
   try {
+    const currentEvent = await Event.findById(req.params.id);
+    if (currentEvent) {
+      await createVersionSnapshot("event", currentEvent, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "published" },
+      });
+    }
+
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { status: "published" },
@@ -630,8 +663,19 @@ export const publishEvent = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Reject Event
 // ===============================
-export const rejectEvent = async (req: Request, res: Response) => {
+export const rejectEvent = async (req: any, res: Response) => {
   try {
+    const currentEvent = await Event.findById(req.params.id);
+    if (currentEvent) {
+      await createVersionSnapshot("event", currentEvent, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "rejected" },
+      });
+    }
+
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { status: "rejected", adminNotes: req.body.notes || "" },
@@ -651,8 +695,19 @@ export const rejectEvent = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Request Changes
 // ===============================
-export const requestChangesEvent = async (req: Request, res: Response) => {
+export const requestChangesEvent = async (req: any, res: Response) => {
   try {
+    const currentEvent = await Event.findById(req.params.id);
+    if (currentEvent) {
+      await createVersionSnapshot("event", currentEvent, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "changes_requested" },
+      });
+    }
+
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { status: "changes_requested", adminNotes: req.body.notes || "" },
@@ -672,8 +727,19 @@ export const requestChangesEvent = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Set to Pending
 // ===============================
-export const setEventPending = async (req: Request, res: Response) => {
+export const setEventPending = async (req: any, res: Response) => {
   try {
+    const currentEvent = await Event.findById(req.params.id);
+    if (currentEvent) {
+      await createVersionSnapshot("event", currentEvent, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "pending" },
+      });
+    }
+
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { status: "pending" },
@@ -693,13 +759,21 @@ export const setEventPending = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Toggle Featured
 // ===============================
-export const toggleFeaturedEvent = async (req: Request, res: Response) => {
+export const toggleFeaturedEvent = async (req: any, res: Response) => {
   try {
     const event = await Event.findById(req.params.id);
 
     if (!event) {
       return res.status(404).json({ success: false, message: "Event not found" });
     }
+
+    await createVersionSnapshot("event", event, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: { featured: !event.featured },
+    });
 
     event.featured = !event.featured;
     await event.save();

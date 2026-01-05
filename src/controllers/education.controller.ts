@@ -7,6 +7,7 @@ import {
   computeEducationExpiryDate,
   expireOutdatedEducation,
 } from "../services/educationLifecycleService";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 // Helper to get image URL from various formats
 const getImageUrl = (item: any): string | undefined => {
@@ -533,12 +534,21 @@ export const adminGetEducationById = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Update Education
 // ===============================
-export const adminUpdateEducation = async (req: Request, res: Response) => {
+export const adminUpdateEducation = async (req: any, res: Response) => {
   try {
     const listing = await Education.findById(req.params.id);
     if (!listing) {
       return res.status(404).json({ success: false, message: "Education listing not found" });
     }
+
+    // Create version snapshot before update
+    await createVersionSnapshot("education", listing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
 
     const now = new Date();
     const classDate = req.body.classDate ?? listing.classDate;
@@ -636,8 +646,19 @@ export const adminDeleteEducation = async (req: any, res: Response) => {
 // ===============================
 // ADMIN — Approve Education
 // ===============================
-export const approveEducation = async (req: Request, res: Response) => {
+export const approveEducation = async (req: any, res: Response) => {
   try {
+    const currentListing = await Education.findById(req.params.id);
+    if (currentListing) {
+      await createVersionSnapshot("education", currentListing, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "approved" },
+      });
+    }
+
     const listing = await Education.findByIdAndUpdate(
       req.params.id,
       { status: "approved" },

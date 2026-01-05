@@ -4,6 +4,7 @@ import Category from "../models/Category";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import StoreTag from "../models/StoreTag";
 import { User } from "../models/User";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 const ROLE_CONTROL_ACTIONS: Record<string, string[]> = {
   admin: ["create", "edit_any", "delete_any", "approve", "publish", "feature"],
@@ -1173,6 +1174,16 @@ export const updateProduct = async (req: any, res: Response) => {
         message: "Product not found",
       });
     }
+
+    // Create version snapshot before update
+    const entityType = product.productSource === "store" ? "store-product" : "product";
+    await createVersionSnapshot(entityType, product, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
 
     // Determine product structure based on update data
     const updateData = { ...req.body };

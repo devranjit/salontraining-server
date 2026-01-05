@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Blog } from "../models/Blog";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 const normalizeCategory = (value?: string) => (value || "").trim();
 const normalizeTags = (tags: any): string[] => {
@@ -377,8 +378,21 @@ export const adminGetBlogById = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Update Blog
 // ===============================
-export const adminUpdateBlog = async (req: Request, res: Response) => {
+export const adminUpdateBlog = async (req: any, res: Response) => {
   try {
+    const currentBlog = await Blog.findById(req.params.id);
+    if (!currentBlog) {
+      return res.status(404).json({ success: false, message: "Blog not found" });
+    }
+
+    await createVersionSnapshot("blog", currentBlog, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
+
     const updatePayload: any = { ...req.body };
     if (req.body.category !== undefined) updatePayload.category = normalizeCategory(req.body.category);
     if (req.body.tags !== undefined) updatePayload.tags = normalizeTags(req.body.tags);
@@ -388,10 +402,6 @@ export const adminUpdateBlog = async (req: Request, res: Response) => {
       updatePayload,
       { new: true }
     );
-
-    if (!blog) {
-      return res.status(404).json({ success: false, message: "Blog not found" });
-    }
 
     return res.json({ success: true, blog });
   } catch (err: any) {
@@ -465,8 +475,19 @@ export const adminDeleteBlog = async (req: any, res: Response) => {
 // ===============================
 // ADMIN — Approve Blog
 // ===============================
-export const approveBlog = async (req: Request, res: Response) => {
+export const approveBlog = async (req: any, res: Response) => {
   try {
+    const currentBlog = await Blog.findById(req.params.id);
+    if (currentBlog) {
+      await createVersionSnapshot("blog", currentBlog, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "approved" },
+      });
+    }
+
     const blog = await Blog.findByIdAndUpdate(
       req.params.id,
       { status: "approved" },
@@ -486,9 +507,20 @@ export const approveBlog = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Publish Blog
 // ===============================
-export const publishBlog = async (req: Request, res: Response) => {
+export const publishBlog = async (req: any, res: Response) => {
   try {
     const { publishDate } = req.body;
+
+    const currentBlog = await Blog.findById(req.params.id);
+    if (currentBlog) {
+      await createVersionSnapshot("blog", currentBlog, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "published" },
+      });
+    }
 
     const blog = await Blog.findByIdAndUpdate(
       req.params.id,
@@ -512,9 +544,20 @@ export const publishBlog = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Reject Blog
 // ===============================
-export const rejectBlog = async (req: Request, res: Response) => {
+export const rejectBlog = async (req: any, res: Response) => {
   try {
     const { adminNotes } = req.body;
+
+    const currentBlog = await Blog.findById(req.params.id);
+    if (currentBlog) {
+      await createVersionSnapshot("blog", currentBlog, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "rejected" },
+      });
+    }
 
     const blog = await Blog.findByIdAndUpdate(
       req.params.id,
@@ -592,13 +635,21 @@ export const setPendingBlog = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Toggle Featured
 // ===============================
-export const toggleBlogFeatured = async (req: Request, res: Response) => {
+export const toggleBlogFeatured = async (req: any, res: Response) => {
   try {
     const blog = await Blog.findById(req.params.id);
 
     if (!blog) {
       return res.status(404).json({ success: false, message: "Blog not found" });
     }
+
+    await createVersionSnapshot("blog", blog, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: { featured: !blog.featured },
+    });
 
     blog.featured = !blog.featured;
     await blog.save();

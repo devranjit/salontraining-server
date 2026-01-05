@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Job } from "../models/Job";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 // ===============================
 // PUBLIC — Get Jobs (with filters)
@@ -313,17 +314,26 @@ export const adminGetJobById = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Update Job
 // ===============================
-export const adminUpdateJob = async (req: Request, res: Response) => {
+export const adminUpdateJob = async (req: any, res: Response) => {
   try {
+    const currentJob = await Job.findById(req.params.id);
+    if (!currentJob) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    await createVersionSnapshot("job", currentJob, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
+
     const job = await Job.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true }
     );
-
-    if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
-    }
 
     return res.json({ success: true, job });
   } catch (err: any) {
@@ -396,8 +406,19 @@ export const adminDeleteJob = async (req: any, res: Response) => {
 // ===============================
 // ADMIN — Approve Job
 // ===============================
-export const approveJob = async (req: Request, res: Response) => {
+export const approveJob = async (req: any, res: Response) => {
   try {
+    const currentJob = await Job.findById(req.params.id);
+    if (currentJob) {
+      await createVersionSnapshot("job", currentJob, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "approved" },
+      });
+    }
+
     const job = await Job.findByIdAndUpdate(
       req.params.id,
       { status: "approved", adminNotes: req.body.adminNotes || "" },
@@ -417,8 +438,19 @@ export const approveJob = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Publish Job
 // ===============================
-export const publishJob = async (req: Request, res: Response) => {
+export const publishJob = async (req: any, res: Response) => {
   try {
+    const currentJob = await Job.findById(req.params.id);
+    if (currentJob) {
+      await createVersionSnapshot("job", currentJob, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "published" },
+      });
+    }
+
     const updateData: any = {
       status: "published",
       publishDate: req.body.publishDate || new Date(),
@@ -569,13 +601,21 @@ export const markJobFilled = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Toggle Featured
 // ===============================
-export const toggleJobFeatured = async (req: Request, res: Response) => {
+export const toggleJobFeatured = async (req: any, res: Response) => {
   try {
     const job = await Job.findById(req.params.id);
 
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
+
+    await createVersionSnapshot("job", job, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: { featured: !job.featured },
+    });
 
     job.featured = !job.featured;
     await job.save();

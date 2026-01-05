@@ -3,6 +3,7 @@ import { TrainerListing } from "../models/TrainerListing";
 import User from "../models/User";
 import mongoose from "mongoose";
 import { createNotification, notifyAdmins } from "./notification.controller";
+import { createVersionSnapshot } from "../services/versionHistoryService";
 
 const normalizeCategory = (value?: string) => {
   const trimmed = (value || "").trim();
@@ -187,12 +188,17 @@ export async function adminGetAllTrainers(req: Request, res: Response) {
 
     let ownerIds: string[] | undefined;
     if (search) {
-      const regex = new RegExp(search as string, "i");
-      const owners = await User.find({ email: regex }).select("_id");
+      // Escape special regex characters
+      const escapedSearch = (search as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Word boundary regex for exact word match on title
+      const wordBoundaryRegex = new RegExp(`\\b${escapedSearch}\\b`, "i");
+      // Partial match for email (need to match parts of email)
+      const partialRegex = new RegExp(escapedSearch, "i");
+      const owners = await User.find({ email: partialRegex }).select("_id");
       ownerIds = owners.map((o: any) => o._id.toString());
       query.$or = [
-        { title: regex },
-        { email: regex },
+        { title: wordBoundaryRegex },
+        { email: partialRegex },
         ...(ownerIds && ownerIds.length ? [{ owner: { $in: ownerIds } }] : []),
       ];
     }
@@ -235,8 +241,20 @@ export async function adminGetAllTrainers(req: Request, res: Response) {
 // ===============================
 // ADMIN — Approve Trainer
 // ===============================
-export const approveTrainer = async (req: Request, res: Response) => {
+export const approveTrainer = async (req: any, res: Response) => {
   try {
+    // Get current state for version history
+    const currentListing = await TrainerListing.findById(req.params.id);
+    if (currentListing) {
+      await createVersionSnapshot("trainer", currentListing, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "approved" },
+      });
+    }
+
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
       { status: "approved" },
@@ -264,8 +282,20 @@ export const approveTrainer = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Reject Trainer
 // ===============================
-export const rejectTrainer = async (req: Request, res: Response) => {
+export const rejectTrainer = async (req: any, res: Response) => {
   try {
+    // Get current state for version history
+    const currentListing = await TrainerListing.findById(req.params.id);
+    if (currentListing) {
+      await createVersionSnapshot("trainer", currentListing, {
+        changedBy: req.user?._id?.toString(),
+        changedByName: req.user?.name,
+        changedByEmail: req.user?.email,
+        changeType: "status_change",
+        newData: { status: "rejected" },
+      });
+    }
+
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
       { status: "rejected" },
@@ -293,11 +323,26 @@ export const rejectTrainer = async (req: Request, res: Response) => {
 // ===============================
 // ADMIN — Update Trainer
 // ===============================
-export async function updateTrainerAdmin(req: Request, res: Response) {
+export async function updateTrainerAdmin(req: any, res: Response) {
   try {
     const { id } = req.params;
     const category = normalizeCategory(req.body.category);
     const tags = req.body.tags !== undefined ? normalizeTags(req.body.tags) : undefined;
+
+    // Get current state before update for version history
+    const currentListing = await TrainerListing.findById(id);
+    if (!currentListing) {
+      return res.status(404).json({ success: false, message: "Trainer not found" });
+    }
+
+    // Create version snapshot before update
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: req.body,
+    });
 
     const updatePayload: any = {
       ...req.body,
@@ -308,10 +353,6 @@ export async function updateTrainerAdmin(req: Request, res: Response) {
 
     const listing = await TrainerListing.findByIdAndUpdate(id, updatePayload, { new: true });
 
-    if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
-    }
-
     return res.json({ success: true, listing });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -321,20 +362,30 @@ export async function updateTrainerAdmin(req: Request, res: Response) {
 // ===============================
 // ADMIN — Set Pending
 // ===============================
-export async function setPendingTrainer(req: Request, res: Response) {
+export async function setPendingTrainer(req: any, res: Response) {
   try {
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { status: "pending" },
-      { new: true }
-    );
-
-    if (!listing) {
+    // Get current state for version history
+    const currentListing = await TrainerListing.findById(req.params.id);
+    if (!currentListing) {
       return res.status(404).json({
         success: false,
         message: "Trainer not found",
       });
     }
+
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "status_change",
+      newData: { status: "pending" },
+    });
+
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "pending" },
+      { new: true }
+    );
 
     return res.json({ success: true, listing });
   } catch (err: any) {
@@ -345,21 +396,32 @@ export async function setPendingTrainer(req: Request, res: Response) {
 // ===============================
 // ADMIN — Request Changes
 // ===============================
-export async function requestChanges(req: Request, res: Response) {
+export async function requestChanges(req: any, res: Response) {
   try {
     const { adminNotes } = req.body;
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { status: "changes_requested", adminNotes },
-      { new: true }
-    );
-
-    if (!listing) {
+    
+    // Get current state for version history
+    const currentListing = await TrainerListing.findById(req.params.id);
+    if (!currentListing) {
       return res.status(404).json({
         success: false,
         message: "Trainer not found",
       });
     }
+
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "status_change",
+      newData: { status: "changes_requested", adminNotes },
+    });
+
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "changes_requested", adminNotes },
+      { new: true }
+    );
 
     return res.json({ success: true, listing });
   } catch (err: any) {
@@ -370,20 +432,30 @@ export async function requestChanges(req: Request, res: Response) {
 // ===============================
 // ADMIN — Publish Trainer
 // ===============================
-export async function publishTrainer(req: Request, res: Response) {
+export async function publishTrainer(req: any, res: Response) {
   try {
-    const listing = await TrainerListing.findByIdAndUpdate(
-      req.params.id,
-      { status: "published", publishDate: new Date() },
-      { new: true }
-    );
-
-    if (!listing) {
+    // Get current state for version history
+    const currentListing = await TrainerListing.findById(req.params.id);
+    if (!currentListing) {
       return res.status(404).json({
         success: false,
         message: "Trainer not found",
       });
     }
+
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "status_change",
+      newData: { status: "published" },
+    });
+
+    const listing = await TrainerListing.findByIdAndUpdate(
+      req.params.id,
+      { status: "published", publishDate: new Date() },
+      { new: true }
+    );
 
     return res.json({ success: true, listing });
   } catch (err: any) {
@@ -395,7 +467,7 @@ export async function publishTrainer(req: Request, res: Response) {
 // ===============================
 // ADMIN — Toggle Featured
 // ===============================
-export const toggleFeatured = async (req: Request, res: Response) => {
+export const toggleFeatured = async (req: any, res: Response) => {
   try {
     const id = req.params.id;
 
@@ -408,6 +480,15 @@ export const toggleFeatured = async (req: Request, res: Response) => {
         message: "Trainer not found",
       });
     }
+
+    // Create version snapshot before toggle
+    await createVersionSnapshot("trainer", listing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "update",
+      newData: { featured: !listing.featured },
+    });
 
     listing.featured = !listing.featured;
     await listing.save();
@@ -524,10 +605,15 @@ export async function getAllTrainers(req: Request, res: Response) {
     if (category) query.category = category;
     if (city) query.city = city;
     if (search) {
+      // Escape special regex characters and use word boundary for exact word match
+      const escapedSearch = (search as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const wordBoundaryRegex = `\\b${escapedSearch}\\b`;
       query.$or = [
-        { title: { $regex: search as string, $options: "i" } },
-        { description: { $regex: search as string, $options: "i" } },
-        { city: { $regex: search as string, $options: "i" } },
+        { title: { $regex: wordBoundaryRegex, $options: "i" } },
+        { description: { $regex: wordBoundaryRegex, $options: "i" } },
+        { city: { $regex: wordBoundaryRegex, $options: "i" } },
+        { category: { $regex: wordBoundaryRegex, $options: "i" } },
+        { state: { $regex: wordBoundaryRegex, $options: "i" } },
       ];
     }
 
