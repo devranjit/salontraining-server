@@ -43,6 +43,9 @@ import "./lib/cloudinary";
 // -----------------------------------------
 const app = express();
 
+// Trust proxy - required when behind Nginx/reverse proxy for rate limiting and getting real client IP
+app.set('trust proxy', 1);
+
 app.use(
   express.json({
     verify: (req: any, _res, buf) => {
