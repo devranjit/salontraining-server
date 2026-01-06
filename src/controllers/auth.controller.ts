@@ -764,7 +764,9 @@ export const forgotPassword = async (req: Request, res: Response) => {
     // Create reset URL
     const resetUrl = `${FRONTEND_BASE_URL}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
-    await dispatchEmailEvent("auth.password-reset", {
+    // Send email asynchronously (fire-and-forget) for faster response
+    // The reset token is already saved, so even if email is delayed, reset will work
+    dispatchEmailEvent("auth.password-reset", {
       to: email,
       data: {
         user: {
@@ -775,8 +777,12 @@ export const forgotPassword = async (req: Request, res: Response) => {
           url: resetUrl,
         },
       },
+    }).catch((emailError) => {
+      // Log error but don't fail - reset token is already stored
+      console.error("Failed to send password reset email (async):", emailError);
     });
 
+    // Respond immediately - email is being sent in background
     return res.json({ 
       success: true, 
       message: "If an account exists with this email, you will receive a password reset link." 
