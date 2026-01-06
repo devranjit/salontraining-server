@@ -5,6 +5,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
+import { apiCache, getCacheStats } from "./middleware/cache";
 
 // ROUTES
 import authRoutes from "./routes/auth.routes";
@@ -165,6 +166,12 @@ app.use(
 
 
 // -----------------------------------------
+// API RESPONSE CACHE (Public GET endpoints only)
+// -----------------------------------------
+// Apply cache middleware globally - it only caches whitelisted public routes
+app.use(apiCache);
+
+// -----------------------------------------
 // API ROUTES
 // -----------------------------------------
 app.use("/api/upload", uploadRoutes);
@@ -205,6 +212,16 @@ app.get("/", (req: Request, res: Response) => {
     success: true,
     message: "SalonTraining API is running",
     env: process.env.NODE_ENV || "development",
+  });
+});
+
+// Cache stats endpoint (for monitoring)
+app.get("/api/cache-stats", (req: Request, res: Response) => {
+  // Optional: Add admin auth check here in production
+  const stats = getCacheStats();
+  res.json({
+    success: true,
+    cache: stats,
   });
 });
 
