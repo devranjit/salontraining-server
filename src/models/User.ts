@@ -83,6 +83,14 @@ userSchema.index({ createdAt: -1 }); // For sorting by recent
 userSchema.index({ role: 1 }); // For role-based queries
 userSchema.index({ status: 1 }); // For status filtering
 
+// Indexes for search functionality
+userSchema.index({ name: 1 }); // For name-based sorting and search
+userSchema.index({ email: 1 }); // Email is already unique, but explicit index helps queries
+userSchema.index({ role: 1, status: 1, createdAt: -1 }); // Compound index for admin filtering
+
+// Text index for full-text search (optional - if using MongoDB text search)
+// userSchema.index({ name: "text", email: "text", first_name: "text", last_name: "text" });
+
 // Single model export - use named export for consistency
 export const User = mongoose.model("User", userSchema);
 export default User;

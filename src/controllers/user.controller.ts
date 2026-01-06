@@ -62,19 +62,85 @@ const generateSecurePassword = (length = 12) => {
 };
 
 // ------------------------------------------------------
-// GET ALL USERS (Admin)
+// GET ALL USERS (Admin) - With Pagination
 // ------------------------------------------------------
 export const getAllUsers = async (req: any, res: Response) => {
   try {
-    const users = await User.find()
-      .select("-password -otp -otpExpires")
-      .sort({ createdAt: -1 });
+    const {
+      page = 1,
+      limit = 25,
+      search,
+      role,
+      status,
+      sort = "newest",
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 25));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build query
+    const query: any = {};
+
+    // Role filter
+    if (role && role !== "all") {
+      query.role = role;
+    }
+
+    // Status filter
+    if (status && status !== "all") {
+      query.status = status;
+    }
+
+    // Search filter
+    if (search) {
+      const escaped = (search as string).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      const orConditions: Array<Record<string, any>> = [
+        { name: regex },
+        { email: regex },
+        { first_name: regex },
+        { last_name: regex },
+      ];
+      if (mongoose.Types.ObjectId.isValid(search as string)) {
+        orConditions.push({ _id: search });
+      }
+      query.$or = orConditions;
+    }
+
+    // Sort options
+    const sortMap: Record<string, any> = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      name_asc: { name: 1, email: 1 },
+      name_desc: { name: -1, email: -1 },
+      email_asc: { email: 1 },
+      email_desc: { email: -1 },
+    };
+    const sortOption = sortMap[sort as string] || { createdAt: -1 };
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select("-password -otp -otpExpires -resetPasswordToken -resetPasswordExpires")
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(query),
+    ]);
 
     res.json({
       success: true,
       users,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+      },
     });
   } catch (error) {
+    console.error("getAllUsers error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
