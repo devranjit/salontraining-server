@@ -11,6 +11,9 @@ export type EmailEventKey =
   | "auth.registration-locked"
   | "auth.account-unlocked"
   | "admin.recycle-bin-warning"
+  | "admin.password-set"
+  | "admin.password-reset-request"
+  | "admin.temp-password"
   | "order.paid"
   | "order.shipped"
   | "order.out-for-delivery"
@@ -199,6 +202,61 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
           <li><strong>{{entityType}}</strong> – {{metadata.title}}{{metadata.name}} (Deleted {{deletedAt}})</li>
         {{/items}}
       </ul>
+    `,
+  },
+  {
+    key: "admin.password-set",
+    label: "Admin Password Set",
+    description: "Sent when an administrator sets a new password for a user.",
+    defaultSubject: "Your SalonTraining password has been changed by an administrator",
+    defaultHtml: `
+      <h1 style="color:#f59e0b;margin-bottom:16px;">Password Changed by Administrator</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">An administrator has reset your password on {{context.timestamp}}.</p>
+      <p style="color:#555;">If you did not request this change, please contact our support team immediately.</p>
+      <p style="margin-top:24px;">
+        <a href="{{app.url}}/login" style="background:#d57a2c;color:#fff;text-decoration:none;padding:12px 32px;border-radius:999px;font-weight:bold;">Log In Now</a>
+      </p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">Contact support at support@salontraining.com</p>
+    `,
+  },
+  {
+    key: "admin.password-reset-request",
+    label: "Admin Password Reset Request",
+    description: "Sent when an administrator triggers a password reset for a user.",
+    defaultSubject: "Password reset requested by administrator - SalonTraining",
+    defaultHtml: `
+      <h1 style="color:#d57a2c;margin-bottom:16px;">Password Reset Requested</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">An administrator has requested a password reset for your account.</p>
+      <p style="color:#555;">Click the button below to set a new password:</p>
+      <p style="text-align:center;margin:24px 0;">
+        <a href="{{reset.url}}" style="background:#d57a2c;color:#fff;text-decoration:none;padding:12px 32px;border-radius:999px;font-weight:bold;">Reset Password</a>
+      </p>
+      <p style="color:#94a3b8;font-size:12px;">This link expires in {{reset.expiresIn}}.</p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">If you did not expect this email, please contact support at support@salontraining.com</p>
+    `,
+  },
+  {
+    key: "admin.temp-password",
+    label: "Admin Temporary Password",
+    description: "Sent when an administrator generates a temporary password for a user.",
+    defaultSubject: "Your temporary SalonTraining password",
+    defaultHtml: `
+      <h1 style="color:#f59e0b;margin-bottom:16px;">Temporary Password Generated</h1>
+      <p style="font-size:16px;color:#333;">Hi {{user.name}},</p>
+      <p style="color:#555;">An administrator has generated a temporary password for your account.</p>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin:24px 0;text-align:center;">
+        <p style="color:#64748b;font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.1em;">Your Temporary Password</p>
+        <p style="font-size:24px;font-weight:bold;color:#0f172a;margin:0;letter-spacing:2px;font-family:monospace;">{{tempPassword}}</p>
+      </div>
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:16px;border-radius:0 8px 8px 0;margin:20px 0;">
+        <p style="margin:0;color:#92400e;font-size:14px;"><strong>Important:</strong> Please log in and change this password immediately for security.</p>
+      </div>
+      <p style="text-align:center;margin-top:24px;">
+        <a href="{{app.url}}/login" style="background:#d57a2c;color:#fff;text-decoration:none;padding:12px 32px;border-radius:999px;font-weight:bold;">Log In Now</a>
+      </p>
+      <p style="color:#777;font-size:12px;margin-top:24px;">If you did not expect this email, please contact support at support@salontraining.com</p>
     `,
   },
   {

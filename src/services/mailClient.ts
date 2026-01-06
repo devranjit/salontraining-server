@@ -50,7 +50,9 @@ export const getMailClient = (): MailClient => {
     return cachedClient;
   }
 
+  console.log("[MailClient] Initializing SMTP transporter...");
   const config = resolveConfig();
+  console.log(`[MailClient] Host: ${config.host}, Port: ${config.port}, Secure: ${config.secure}`);
   cachedClient = {
     transporter: nodemailer.createTransport({
       host: config.host,

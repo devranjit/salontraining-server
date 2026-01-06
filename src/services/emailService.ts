@@ -181,6 +181,7 @@ const sendWithTemplate = async (options: {
   });
 
   try {
+    console.log(`[Email] Sending "${event}" to ${to}...`);
     const mailClient = getMailClient();
     const response = await mailClient.transporter.sendMail({
       from: mailClient.from,
@@ -193,11 +194,14 @@ const sendWithTemplate = async (options: {
     logEntry.status = "sent";
     logEntry.response = response;
     await logEntry.save();
+    console.log(`[Email] ✓ Sent "${event}" to ${to}`);
 
     return { sent: true };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Email] ✗ Failed "${event}" to ${to}:`, errorMessage);
     logEntry.status = "failed";
-    logEntry.error = error instanceof Error ? error.message : error;
+    logEntry.error = errorMessage;
     await logEntry.save();
     if (!test) {
       throw error;

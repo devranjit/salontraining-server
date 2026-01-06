@@ -88,8 +88,11 @@ const MemberVideoSchema = new Schema<IMemberVideo>(
 
 // Index for efficient queries
 MemberVideoSchema.index({ status: 1, order: 1 });
+MemberVideoSchema.index({ status: 1 }); // For dashboard count queries
 MemberVideoSchema.index({ category: 1 });
 MemberVideoSchema.index({ featured: 1 });
+MemberVideoSchema.index({ createdAt: -1 }); // For sorting by recent
+MemberVideoSchema.index({ createdBy: 1, status: 1 }); // For user dashboard queries
 
 export default mongoose.model<IMemberVideo>("MemberVideo", MemberVideoSchema);
 

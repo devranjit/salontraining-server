@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { connectDB } from "./config/connectDB";
 import { ensureEmailDefaults } from "./services/emailService";
 import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/firebaseAdmin";
@@ -16,7 +17,14 @@ async function bootstrap(): Promise<void> {
   await connectDB();
   console.log("✓ Database connected");
 
-  // 2. Ensure email templates exist
+  // 2. Sync indexes in background (non-blocking for faster startup)
+  if (process.env.SYNC_INDEXES !== "false") {
+    mongoose.syncIndexes()
+      .then(() => console.log("✓ Database indexes synced"))
+      .catch((err) => console.warn("⚠ Index sync warning:", err.message));
+  }
+
+  // 3. Ensure email templates exist
   try {
     await ensureEmailDefaults();
     console.log("✓ Email templates initialized");
@@ -25,7 +33,7 @@ async function bootstrap(): Promise<void> {
     // Non-fatal: continue server startup
   }
 
-  // 3. Initialize Firebase Admin SDK (optional)
+  // 4. Initialize Firebase Admin SDK (optional)
   if (isFirebaseConfigured()) {
     try {
       initializeFirebaseAdmin();

@@ -10,6 +10,38 @@ import { dispatchEmailEvent } from "../services/emailService";
 const ALLOWED_ROLES = ["user", "member", "st-member", "manager", "admin"];
 const ALLOWED_STATUSES = ["active", "blocked", "registration_locked"];
 
+// Password complexity requirements
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+const RESET_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
+
+const FRONTEND_BASE_URL = (
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:5173"
+    : "https://salontraining.com")
+).replace(/\/+$/, "");
+
+const validatePassword = (password: string): { valid: boolean; message: string } => {
+  if (!password || password.length < PASSWORD_MIN_LENGTH) {
+    return { 
+      valid: false, 
+      message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters` 
+    };
+  }
+  if (!PASSWORD_REGEX.test(password)) {
+    return { 
+      valid: false, 
+      message: "Password must contain at least one uppercase letter, one lowercase letter, and one number" 
+    };
+  }
+  return { valid: true, message: "" };
+};
+
+const generateSecureToken = () => {
+  return crypto.randomBytes(32).toString("hex");
+};
+
 const sanitizeUser = (user: any) => {
   const obj = user.toObject ? user.toObject() : user;
   delete obj.password;
@@ -510,6 +542,207 @@ export const unlockLockedUser = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Unlock user error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// ADMIN SET PASSWORD (Admin Only)
+// ------------------------------------------------------
+export const adminSetPassword = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, notifyUser = true } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password is required" 
+      });
+    }
+
+    // Validate password complexity
+    const validation = validatePassword(password);
+    if (!validation.valid) {
+      return res.status(400).json({ 
+        success: false, 
+        message: validation.message 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Prevent admin from changing their own password through this route
+    if (req.user && req.user._id.toString() === id) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "You cannot change your own password through this route. Use the profile settings instead." 
+      });
+    }
+
+    // Hash and save new password
+    const hashedPassword = await bcrypt.hash(password, 12);
+    user.password = hashedPassword;
+    
+    // Clear any password reset tokens
+    (user as any).resetPasswordToken = null;
+    (user as any).resetPasswordExpires = null;
+    
+    // Reset login attempts and locks
+    (user as any).loginAttempts = 0;
+    (user as any).lockUntil = null;
+    
+    await user.save();
+
+    // Send notification email if requested
+    if (notifyUser) {
+      dispatchEmailEvent("admin.password-set", {
+        to: user.email,
+        data: {
+          user: {
+            name: user.name || user.email,
+            email: user.email,
+          },
+          admin: {
+            name: req.user?.name || "Administrator",
+          },
+          context: {
+            timestamp: new Date().toISOString(),
+          },
+        },
+      }).catch((err) => console.error("Failed to send password set notification:", err));
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Password set successfully for ${user.email}${notifyUser ? ". User has been notified." : ""}` 
+    });
+  } catch (error: any) {
+    console.error("Admin set password error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// ADMIN SEND PASSWORD RESET EMAIL (Admin Only)
+// ------------------------------------------------------
+export const adminSendPasswordReset = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Generate secure reset token
+    const resetToken = generateSecureToken();
+    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+
+    // Save token to user
+    (user as any).resetPasswordToken = hashedToken;
+    (user as any).resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_EXPIRY);
+    await user.save();
+
+    // Create reset URL
+    const resetUrl = `${FRONTEND_BASE_URL}/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+    // Send password reset email
+    dispatchEmailEvent("admin.password-reset-request", {
+      to: user.email,
+      data: {
+        user: {
+          name: user.name || user.email,
+          email: user.email,
+        },
+        admin: {
+          name: req.user?.name || "Administrator",
+        },
+        reset: {
+          url: resetUrl,
+          expiresIn: "1 hour",
+        },
+      },
+    }).catch((err) => console.error("Failed to send admin password reset:", err));
+
+    res.json({ 
+      success: true, 
+      message: `Password reset email sent to ${user.email}`,
+      expiresIn: "1 hour"
+    });
+  } catch (error: any) {
+    console.error("Admin send password reset error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+};
+
+// ------------------------------------------------------
+// ADMIN GENERATE TEMP PASSWORD (Admin Only)
+// ------------------------------------------------------
+export const adminGenerateTempPassword = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { notifyUser = true } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Prevent admin from changing their own password
+    if (req.user && req.user._id.toString() === id) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "You cannot generate a temporary password for yourself" 
+      });
+    }
+
+    // Generate temporary password
+    const tempPassword = generateSecurePassword(12);
+    const hashedPassword = await bcrypt.hash(tempPassword, 12);
+
+    user.password = hashedPassword;
+    
+    // Clear any password reset tokens
+    (user as any).resetPasswordToken = null;
+    (user as any).resetPasswordExpires = null;
+    
+    // Reset login attempts and locks
+    (user as any).loginAttempts = 0;
+    (user as any).lockUntil = null;
+    
+    await user.save();
+
+    // Send notification email with temp password if requested
+    if (notifyUser) {
+      dispatchEmailEvent("admin.temp-password", {
+        to: user.email,
+        data: {
+          user: {
+            name: user.name || user.email,
+            email: user.email,
+          },
+          admin: {
+            name: req.user?.name || "Administrator",
+          },
+          tempPassword,
+          context: {
+            timestamp: new Date().toISOString(),
+          },
+        },
+      }).catch((err) => console.error("Failed to send temp password notification:", err));
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Temporary password generated for ${user.email}${notifyUser ? ". User has been notified." : ""}`,
+      tempPassword: notifyUser ? undefined : tempPassword, // Only return if not notifying user
+    });
+  } catch (error: any) {
+    console.error("Admin generate temp password error:", error);
     res.status(500).json({ success: false, message: error.message || "Server error" });
   }
 };

@@ -77,6 +77,8 @@ const reviewSchema = new mongoose.Schema(
 reviewSchema.index({ listingType: 1, listingId: 1, status: 1 });
 reviewSchema.index({ user: 1, listingType: 1, listingId: 1 }, { unique: true });
 reviewSchema.index({ status: 1, updatedAt: -1 });
+reviewSchema.index({ status: 1 }); // For dashboard count queries
+reviewSchema.index({ createdAt: -1 }); // For sorting by recent
 
 const Review = mongoose.models.Review || mongoose.model("Review", reviewSchema);
 export default Review;

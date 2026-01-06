@@ -12,6 +12,9 @@ import {
   searchUsers,
   getLockedUsers,
   unlockLockedUser,
+  adminSetPassword,
+  adminSendPasswordReset,
+  adminGenerateTempPassword,
 } from "../controllers/user.controller";
 import { unlockAccount } from "../controllers/auth.controller";
 
@@ -30,5 +33,10 @@ router.patch("/:id/role", protect, adminOnly, changeUserRole);
 router.patch("/:id/status", protect, adminOnly, updateUserStatus);
 router.post("/unlock", protect, adminOnly, unlockAccount);
 router.post("/locked/:id/unlock", protect, adminOnly, unlockLockedUser);
+
+// Admin password management routes
+router.post("/:id/set-password", protect, adminOnly, adminSetPassword);
+router.post("/:id/send-password-reset", protect, adminOnly, adminSendPasswordReset);
+router.post("/:id/generate-temp-password", protect, adminOnly, adminGenerateTempPassword);
 
 export default router;

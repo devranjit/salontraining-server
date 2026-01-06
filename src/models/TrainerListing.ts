@@ -134,8 +134,12 @@ trainerListingSchema.pre('save', async function(next) {
 
 // Index for efficient queries
 trainerListingSchema.index({ status: 1, featured: 1 });
+trainerListingSchema.index({ status: 1 }); // For dashboard count queries
 trainerListingSchema.index({ category: 1 });
 trainerListingSchema.index({ slug: 1 });
 trainerListingSchema.index({ "coords.lat": 1, "coords.lng": 1 });
+trainerListingSchema.index({ createdAt: -1 }); // For sorting by recent
+trainerListingSchema.index({ owner: 1, status: 1 }); // For user dashboard queries
+trainerListingSchema.index({ featured: 1 }); // For featured trainer queries
 
 export const TrainerListing = mongoose.model("TrainerListing", trainerListingSchema);

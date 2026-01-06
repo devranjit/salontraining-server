@@ -123,6 +123,7 @@ const educationSchema = new mongoose.Schema(
 
 // Indexes for efficient querying
 educationSchema.index({ status: 1, featured: 1 });
+educationSchema.index({ status: 1 }); // For dashboard count queries
 educationSchema.index({ educationType: 1 });
 educationSchema.index({ category: 1 });
 educationSchema.index({ "coords.lat": 1, "coords.lng": 1 });
@@ -132,6 +133,8 @@ educationSchema.index({ difficulty: 1 });
 educationSchema.index({ price: 1 });
 educationSchema.index({ expiryDate: 1 });
 educationSchema.index({ publishDate: 1 });
+educationSchema.index({ createdAt: -1 }); // For sorting by recent
+educationSchema.index({ owner: 1, status: 1 }); // For user dashboard queries
 
 export const Education = mongoose.model("Education", educationSchema);
 

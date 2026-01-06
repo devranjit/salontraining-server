@@ -78,6 +78,11 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes for efficient dashboard queries
+userSchema.index({ createdAt: -1 }); // For sorting by recent
+userSchema.index({ role: 1 }); // For role-based queries
+userSchema.index({ status: 1 }); // For status filtering
+
 // Single model export - use named export for consistency
 export const User = mongoose.model("User", userSchema);
 export default User;

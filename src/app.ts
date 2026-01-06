@@ -96,11 +96,15 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://salontraining.local:5173",
   
-  // Production Domains
+  // Production Domains (HTTPS - primary)
   "https://placefindy.com",
   "https://www.placefindy.com",
   "https://salontraining.com",
   "https://www.salontraining.com",
+  
+  // Production Domains (HTTP - for redirect handling)
+  "http://salontraining.com",
+  "http://www.salontraining.com",
 ];
 
 // Handle preflight OPTIONS requests explicitly
