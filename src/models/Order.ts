@@ -99,6 +99,8 @@ export interface IOrder extends Document {
     paidAt?: Date;
     stripeSessionId?: string;
     stripePaymentIntentId?: string;
+    recoverySessionId?: string;
+    recoveryLinkExpiresAt?: Date;
   };
   confirmationEmailSent?: boolean;
   contactEmail?: string;
@@ -217,6 +219,8 @@ const paymentSchema = new Schema(
     paidAt: Date,
     stripeSessionId: String,
     stripePaymentIntentId: String,
+    recoverySessionId: String,
+    recoveryLinkExpiresAt: Date,
   },
   { _id: false }
 );

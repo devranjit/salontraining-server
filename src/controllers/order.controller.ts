@@ -7,6 +7,8 @@ import { prepareCartPricing } from "../services/cartPricing.service";
 import { resolveShippingSelection } from "../services/shipping.service";
 import { dispatchEmailEvent } from "../services/emailService";
 import type { EmailEventKey } from "../constants/emailEvents";
+import { getStripeClient } from "../services/stripeClient";
+import { getMailClient } from "../services/mailClient";
 
 type AuthRequest = Request & { user?: any };
 
@@ -22,6 +24,13 @@ const ensureAuth = (req: AuthRequest, res: Response) => {
   }
   return true;
 };
+
+const FRONTEND_URL = (
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "development"
+    ? "http://localhost:5173"
+    : "https://salontraining.com")
+).replace(/\/+$/, "");
 
 // Helper to format money
 const formatMoney = (n: any) => Number(n || 0).toFixed(2);
@@ -667,6 +676,118 @@ export const adminProcessRefund = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to process refund",
+    });
+  }
+};
+
+// ===============================
+// ADMIN — Create payment recovery link
+// ===============================
+export const adminCreateRecoveryLink = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!ensureAuth(req, res)) return;
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    const order = await Order.findById(id).populate("user", "name email");
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    const derivedTotal =
+      Math.max(
+        Number(order.grandTotal || 0),
+        Number(order.itemsTotal || 0) +
+          Number(order.shippingCost || 0) +
+          Number(order.taxTotal || 0) -
+          Number(order.discountTotal || 0)
+      );
+
+    const totalCents = Math.round(derivedTotal * 100);
+    if (totalCents <= 0) {
+      return res.status(400).json({ success: false, message: "Payment recovery not available for $0 orders" });
+    }
+
+    if (!["failed", "awaiting_payment", "pending", "partial"].includes(order.paymentStatus)) {
+      return res.status(400).json({ success: false, message: "Payment recovery is not allowed for this order status" });
+    }
+
+    const stripe = getStripeClient();
+    const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // 24 hours
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      customer_email: order.contactEmail || (order as any)?.user?.email || undefined,
+      client_reference_id: order._id.toString(),
+      expires_at: expiresAt,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Pay Order ${order.orderNumber || order._id}`,
+            },
+            unit_amount: Math.max(1, totalCents),
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${FRONTEND_URL}/checkout/success/${order._id}?source=recover`,
+      cancel_url: `${FRONTEND_URL}/checkout?cancelled=1`,
+      metadata: {
+        orderId: order._id.toString(),
+        recovery: "true",
+        orderNumber: order.orderNumber || order._id.toString(),
+      },
+    });
+
+    order.paymentStatus = "awaiting_payment";
+    order.payment = {
+      ...order.payment,
+      status: "awaiting_payment",
+      stripeSessionId: session.id,
+      recoverySessionId: session.id,
+      recoveryLinkExpiresAt: new Date(expiresAt * 1000),
+    };
+
+    await order.save();
+
+    // Best-effort email notification to customer
+    if (session.url) {
+      const to = order.contactEmail || (order as any)?.user?.email;
+      if (to) {
+        try {
+          const mailClient = getMailClient();
+          await mailClient.transporter.sendMail({
+            from: mailClient.from,
+            to,
+            subject: `Complete payment for order ${order.orderNumber || order._id}`,
+            html: `
+              <p>Hello ${order.shippingAddress?.fullName || (order as any)?.user?.name || "there"},</p>
+              <p>You can securely complete payment for order <strong>${order.orderNumber || order._id}</strong> using the link below. This link expires on ${new Date(expiresAt * 1000).toLocaleString()}.</p>
+              <p><a href="${session.url}">Pay now</a></p>
+              <p>If you have already paid, please ignore this message.</p>
+            `,
+          });
+        } catch (mailErr) {
+          console.error("Failed to send payment recovery email:", mailErr);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      sessionUrl: session.url,
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create payment recovery link",
     });
   }
 };

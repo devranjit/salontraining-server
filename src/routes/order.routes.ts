@@ -13,6 +13,7 @@ import {
   adminDeleteOrder,
   adminBulkDeleteOrders,
   adminBulkUpdateStatus,
+  adminCreateRecoveryLink,
 } from "../controllers/order.controller";
 
 const router = Router();
@@ -34,6 +35,7 @@ router.patch("/admin/:id/status", protect, managerOrAdmin, adminUpdateOrderStatu
 router.post("/admin/:id/shipping-event", protect, managerOrAdmin, adminAddShippingEvent);
 router.patch("/admin/:id/refund", protect, managerOrAdmin, adminProcessRefund);
 router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteOrder);
+router.post("/admin/:id/recovery-link", protect, managerOrAdmin, adminCreateRecoveryLink);
 
 // Customer routes that rely on :id must be last
 router.post("/:id/refund-request", protect, requestRefund);

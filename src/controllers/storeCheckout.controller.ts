@@ -18,10 +18,14 @@ import {
 import { dispatchEmailEvent } from "../services/emailService";
 import { getMailClient } from "../services/mailClient";
 
-async function sendOrderConfirmation(order: any) {
+/**
+ * Send order confirmation email (fire-and-forget, non-blocking)
+ * This function handles its own errors and never throws
+ */
+async function sendOrderConfirmationAsync(order: any): Promise<void> {
   try {
     if (order.confirmationEmailSent) return;
-    const user = await User.findById(order.user).select("name email phone");
+    const user = await User.findById(order.user).select("name email phone").maxTimeMS(5000);
     const to = order.contactEmail || user?.email;
     if (!to) return;
 
@@ -265,11 +269,39 @@ async function sendOrderConfirmation(order: any) {
       await order.save();
     }
   } catch (err) {
-    console.error("Failed to send order confirmation email:", err);
+    console.error("[OrderConfirmation] Failed to send:", err);
   }
 }
 
+/**
+ * Fire-and-forget wrapper - schedules email without blocking
+ */
+function sendOrderConfirmation(order: any): void {
+  // Schedule async without awaiting - response can return immediately
+  setImmediate(() => {
+    sendOrderConfirmationAsync(order).catch((err) => {
+      console.error("[OrderConfirmation] Async handler failed:", err);
+    });
+  });
+}
+
 type AuthRequest = Request & { user?: any };
+
+// Timeout constants
+const STRIPE_TIMEOUT_MS = 8000;
+const DB_QUERY_TIMEOUT_MS = 5000;
+
+/**
+ * Wrap a promise with a timeout
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 const FRONTEND_URL = (
   process.env.FRONTEND_URL ||
@@ -558,18 +590,26 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       },
     };
 
-    // Add discount if coupon applied
+    // Add discount if coupon applied (with timeout)
     if (discountTotal > 0 && appliedCoupon) {
       const couponData: Stripe.CouponCreateParams = appliedCoupon.discountType === "percentage"
         ? { percent_off: appliedCoupon.discountValue, duration: "once" }
         : { amount_off: Math.round(discountTotal * 100), currency: "usd", duration: "once" };
 
-      const stripeCoupon = await stripe.coupons.create(couponData);
+      const stripeCoupon = await withTimeout(
+        stripe.coupons.create(couponData),
+        STRIPE_TIMEOUT_MS,
+        "Stripe coupon create"
+      );
       sessionParams.discounts = [{ coupon: stripeCoupon.id }];
     }
 
-    // Create Stripe checkout session
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    // Create Stripe checkout session (with timeout)
+    const session = await withTimeout(
+      stripe.checkout.sessions.create(sessionParams),
+      STRIPE_TIMEOUT_MS,
+      "Stripe session create"
+    );
 
     // Store session ID on order (use updateOne for reliable subdocument update)
     await Order.updateOne(
@@ -634,79 +674,89 @@ export const stripeWebhook = async (req: Request & { rawBody?: Buffer }, res: Re
 };
 
 async function handleSuccessfulPayment(session: Stripe.Checkout.Session) {
+  const startTime = Date.now();
   const orderId = session.metadata?.orderId;
+  
   if (!orderId) {
-    console.error("No orderId in session metadata");
+    console.error("[Webhook] No orderId in session metadata");
     return;
   }
 
-  const order = await Order.findById(orderId);
-  if (!order) {
-    console.error(`Order not found: ${orderId}`);
-    return;
-  }
-
-  // Update order payment status
-  order.paymentStatus = "paid";
-  order.fulfillmentStatus = "processing";
-  order.payment = {
-    ...order.payment,
-    status: "paid",
-    stripePaymentIntentId: session.payment_intent as string,
-    paidAt: new Date(),
-  };
-
-  // Update shipping timeline
-  if (order.shippingStatus !== "not_required") {
-    order.shippingTimeline.push({
-      status: "processing",
-      note: "Payment received, preparing for shipment",
-      createdBy: order.user,
-    });
-  }
-
-  await order.save();
-
-  // Update stock for items
-  for (const item of order.items) {
-    if (item.productFormat !== "digital") {
-      await Product.updateOne(
-        { _id: item.product },
-        {
-          $inc: {
-            stock: -item.quantity,
-            sales: item.quantity,
-          },
-        }
-      );
-    } else {
-      await Product.updateOne(
-        { _id: item.product },
-        { $inc: { sales: item.quantity } }
-      );
+  try {
+    const order = await Order.findById(orderId).maxTimeMS(DB_QUERY_TIMEOUT_MS);
+    if (!order) {
+      console.error(`[Webhook] Order not found: ${orderId}`);
+      return;
     }
-  }
 
-  // Record coupon usage
-  if (order.couponCode) {
-    await Coupon.updateOne(
-      { code: order.couponCode },
-      {
-        $inc: { usageCount: 1 },
-        $push: {
-          usedBy: {
-            user: order.user,
-            usedAt: new Date(),
-            orderId: order._id,
+    // CRITICAL: Update order payment status first
+    order.paymentStatus = "paid";
+    order.fulfillmentStatus = "processing";
+    order.payment = {
+      ...order.payment,
+      status: "paid",
+      stripePaymentIntentId: session.payment_intent as string,
+      paidAt: new Date(),
+    };
+
+    // Update shipping timeline
+    if (order.shippingStatus !== "not_required") {
+      order.shippingTimeline.push({
+        status: "processing",
+        note: "Payment received, preparing for shipment",
+        createdBy: order.user,
+      });
+    }
+
+    // Save critical order state
+    await order.save();
+    console.log(`[Webhook] Order ${orderId} marked as paid in ${Date.now() - startTime}ms`);
+
+    // NON-CRITICAL: Stock updates, coupon usage, email - fire and forget
+    setImmediate(async () => {
+      try {
+        // Batch stock updates using bulkWrite for better performance
+        const stockOps = order.items.map((item: any) => ({
+          updateOne: {
+            filter: { _id: item.product },
+            update: item.productFormat !== "digital"
+              ? { $inc: { stock: -item.quantity, sales: item.quantity } }
+              : { $inc: { sales: item.quantity } },
           },
-        },
+        }));
+        
+        if (stockOps.length > 0) {
+          await Product.bulkWrite(stockOps);
+        }
+
+        // Record coupon usage
+        if (order.couponCode) {
+          await Coupon.updateOne(
+            { code: order.couponCode },
+            {
+              $inc: { usageCount: 1 },
+              $push: {
+                usedBy: {
+                  user: order.user,
+                  usedAt: new Date(),
+                  orderId: order._id,
+                },
+              },
+            }
+          );
+        }
+
+        // Send confirmation email (already fire-and-forget)
+        sendOrderConfirmation(order);
+        
+        console.log(`[Webhook] Order ${orderId} post-processing completed`);
+      } catch (postErr) {
+        console.error(`[Webhook] Order ${orderId} post-processing error:`, postErr);
       }
-    );
+    });
+  } catch (err) {
+    console.error(`[Webhook] handleSuccessfulPayment error for ${orderId}:`, err);
   }
-
-  await sendOrderConfirmation(order);
-
-  console.log(`Order ${orderId} payment completed successfully`);
 }
 
 async function handleExpiredSession(session: Stripe.Checkout.Session) {
@@ -731,6 +781,8 @@ async function handleExpiredSession(session: Stripe.Checkout.Session) {
 
 // Verify checkout session (for frontend confirmation)
 export const verifyCheckoutSession = async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  
   try {
     // Support both old format (sessionId + orderId) and new format (just oid)
     const orderId = req.query.oid || req.query.orderId;
@@ -743,10 +795,15 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
       });
     }
 
-    // Find the order first
-    const order = await Order.findById(orderId)
-      .populate("user", "name email")
-      .populate("items.product", "name slug images");
+    // Find the order with timeout
+    const order = await withTimeout(
+      Order.findById(orderId)
+        .populate("user", "name email")
+        .populate("items.product", "name slug images")
+        .maxTimeMS(DB_QUERY_TIMEOUT_MS),
+      DB_QUERY_TIMEOUT_MS,
+      "Order lookup"
+    );
 
     if (!order) {
       return res.status(404).json({
@@ -767,8 +824,13 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
       });
     }
 
+    // Retrieve Stripe session with timeout
     const stripe = getStripeClient();
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await withTimeout(
+      stripe.checkout.sessions.retrieve(sessionId),
+      STRIPE_TIMEOUT_MS,
+      "Stripe session retrieve"
+    );
 
     // Verify the session belongs to this order
     if (session.metadata?.orderId !== orderId && session.client_reference_id !== orderId) {
@@ -778,7 +840,14 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
       });
     }
 
-    // If webhook was missed, mark paid and send confirmation best-effort
+    // Prepare response data first (before any async updates)
+    const responseData = {
+      success: true,
+      paymentStatus: session.payment_status,
+      order,
+    };
+
+    // If webhook was missed, update order status (non-blocking for email)
     if (session.payment_status === "paid" && order.paymentStatus !== "paid") {
       order.paymentStatus = "paid";
       order.fulfillmentStatus = "processing";
@@ -795,18 +864,21 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
           createdBy: order.user,
         });
       }
-      await order.save();
-      await sendOrderConfirmation(order);
+      
+      // Save order state synchronously (critical)
+      await withTimeout(order.save(), DB_QUERY_TIMEOUT_MS, "Order save");
+      
+      // Fire-and-forget email (non-blocking)
+      sendOrderConfirmation(order);
     } else if (session.payment_status === "paid" && !order.confirmationEmailSent) {
-      await sendOrderConfirmation(order);
+      // Fire-and-forget email (non-blocking)
+      sendOrderConfirmation(order);
     }
 
-    return res.json({
-      success: true,
-      paymentStatus: session.payment_status,
-      order,
-    });
+    console.log(`[verifyCheckoutSession] Completed in ${Date.now() - startTime}ms`);
+    return res.json(responseData);
   } catch (error: any) {
+    console.error(`[verifyCheckoutSession] Error after ${Date.now() - startTime}ms:`, error.message);
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to verify session",
