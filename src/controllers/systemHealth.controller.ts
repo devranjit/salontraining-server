@@ -63,13 +63,14 @@ const OTP_EXPIRY = 5 * 60 * 1000;
 const generateOtp = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
-const waitForTransporterVerify = (transporter: any) =>
-  new Promise<void>((resolve, reject) => {
-    transporter.verify((error: any) => {
-      if (error) return reject(error);
-      resolve();
-    });
-  });
+const waitForTransporterVerify = async (transporter: any) => {
+  if (typeof transporter.verify === "function") {
+    const result = transporter.verify();
+    if (result && typeof result.then === "function") {
+      await result;
+    }
+  }
+};
 
 const runModule = async (
   key: string,
@@ -342,7 +343,7 @@ async function runEmailCheck(): Promise<ModuleTaskResult> {
   await waitForTransporterVerify(mailClient.transporter);
 
   return {
-    details: "SMTP transporter verified successfully",
+    details: "Mailgun API verified successfully",
     meta: { from: mailClient.from },
   };
 }

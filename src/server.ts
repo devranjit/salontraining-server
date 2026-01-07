@@ -84,7 +84,7 @@ async function bootstrap(): Promise<void> {
     // Non-fatal: continue server startup
   }
 
-  // 4. Verify SMTP/Mailgun connection
+  // 4. Verify Mailgun connection
   try {
     await verifyMailConnection();
     console.log("✓ Mail service (Mailgun) connected");

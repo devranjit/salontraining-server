@@ -795,6 +795,13 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       "Stripe session create"
     );
 
+    // Log session mode for debugging
+    const isLiveSession = session.id.startsWith("cs_live_");
+    console.log(`[Stripe Checkout] Created session: ${session.id.substring(0, 20)}... (${isLiveSession ? "LIVE" : "TEST"} mode)`);
+    if (!isLiveSession) {
+      console.warn("[Stripe Checkout] ⚠️ Session created in TEST mode - check STRIPE_SECRET_KEY");
+    }
+
     // Store session ID on order (use updateOne for reliable subdocument update)
     await Order.updateOne(
       { _id: order._id },

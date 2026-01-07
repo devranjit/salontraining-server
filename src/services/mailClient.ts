@@ -1,53 +1,97 @@
-import nodemailer from "nodemailer";
+import Mailgun from "mailgun.js";
+import FormData from "form-data";
+
+type SendMailOptions = {
+  from?: string;
+  to: string | string[];
+  subject: string;
+  html?: string;
+  text?: string;
+};
+
+type SendMailResult = {
+  id?: string;
+  message?: string;
+  status?: number;
+};
+
+type MailTransporter = {
+  sendMail: (options: SendMailOptions) => Promise<SendMailResult>;
+  verify: () => Promise<boolean>;
+  close: () => void;
+};
 
 type MailClient = {
-  transporter: nodemailer.Transporter;
+  transporter: MailTransporter;
   from: string;
   isVerified: boolean;
 };
 
-const REQUIRED_SMTP_VARS = [
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_SECURE",
-  "SMTP_USER",
-  "SMTP_PASS",
-  "SMTP_FROM",
-] as const;
-
-const parseBoolean = (value: string | undefined) => {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "true" || normalized === "1" || normalized === "yes";
-};
+const REQUIRED_VARS = ["MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAIL_FROM"] as const;
 
 let cachedClient: MailClient | null = null;
+let mailgunClient: ReturnType<Mailgun["client"]> | null = null;
 
 const resolveConfig = () => {
-  const missing = REQUIRED_SMTP_VARS.filter((key) => !process.env[key]);
+  const missing = REQUIRED_VARS.filter((key) => !process.env[key]);
   if (missing.length) {
-    throw new Error(`Missing SMTP environment variables: ${missing.join(", ")}`);
+    throw new Error(`Missing Mailgun environment variables: ${missing.join(", ")}`);
   }
 
-  const port = Number(process.env.SMTP_PORT);
-  if (Number.isNaN(port)) {
-    throw new Error("SMTP_PORT must be a valid number");
+  const domain = process.env.MAILGUN_DOMAIN as string;
+  if (domain.includes("sandbox")) {
+    console.warn("[MailClient] ⚠️ WARNING: Using Mailgun sandbox domain - emails will only go to authorized recipients!");
   }
-
-  const host = process.env.SMTP_HOST as string;
-  const isMailgun = host.includes("mailgun");
 
   return {
-    host,
-    port,
-    // For Mailgun: port 587 uses STARTTLS (secure: false), port 465 uses SSL (secure: true)
-    secure: port === 465 ? true : parseBoolean(process.env.SMTP_SECURE),
-    auth: {
-      user: process.env.SMTP_USER as string,
-      pass: process.env.SMTP_PASS as string,
+    apiKey: process.env.MAILGUN_API_KEY as string,
+    domain,
+    from: process.env.MAIL_FROM as string,
+  };
+};
+
+const getMailgunClient = () => {
+  if (!mailgunClient) {
+    const config = resolveConfig();
+    const mailgun = new Mailgun(FormData);
+    mailgunClient = mailgun.client({
+      username: "api",
+      key: config.apiKey,
+    });
+  }
+  return mailgunClient;
+};
+
+const createTransporter = (config: { domain: string; from: string }): MailTransporter => {
+  return {
+    sendMail: async (options: SendMailOptions): Promise<SendMailResult> => {
+      const mg = getMailgunClient();
+      const recipients = Array.isArray(options.to) ? options.to.join(",") : options.to;
+
+      const messageData = {
+        from: options.from || config.from,
+        to: recipients,
+        subject: options.subject,
+        html: options.html || undefined,
+        text: options.text || undefined,
+      };
+
+      const result = await mg.messages.create(config.domain, messageData as any);
+
+      return {
+        id: result.id,
+        message: result.message,
+        status: result.status,
+      };
     },
-    from: process.env.SMTP_FROM as string,
-    isMailgun,
+
+    verify: async (): Promise<boolean> => {
+      const mg = getMailgunClient();
+      await mg.domains.get(config.domain);
+      return true;
+    },
+
+    close: () => {},
   };
 };
 
@@ -56,36 +100,12 @@ export const getMailClient = (): MailClient => {
     return cachedClient;
   }
 
-  console.log("[MailClient] Initializing SMTP transporter...");
+  console.log("[MailClient] Initializing Mailgun API client...");
   const config = resolveConfig();
-  console.log(`[MailClient] Host: ${config.host}, Port: ${config.port}, Secure: ${config.secure}`);
-  
-  if (config.isMailgun) {
-    console.log("[MailClient] Mailgun SMTP detected - using optimized settings");
-  }
+  console.log(`[MailClient] Domain: ${config.domain}`);
+  console.log(`[MailClient] From: ${config.from}`);
 
-  const transporter = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth: config.auth,
-    // Performance optimizations for fast delivery
-    pool: true, // Use connection pooling for faster subsequent emails
-    maxConnections: 10, // Mailgun supports higher concurrent connections
-    maxMessages: 100, // Max messages per connection before reconnect
-    // Aggressive timeouts for fast failure detection
-    connectionTimeout: 5000, // 5 seconds to establish connection
-    greetingTimeout: 5000, // 5 seconds for SMTP greeting
-    socketTimeout: 15000, // 15 seconds for socket inactivity
-    // TLS options for better compatibility
-    tls: {
-      rejectUnauthorized: true, // Verify server certificate
-      minVersion: "TLSv1.2", // Minimum TLS version
-    },
-    // Debug in development
-    debug: process.env.NODE_ENV === "development",
-    logger: process.env.NODE_ENV === "development",
-  });
+  const transporter = createTransporter(config);
 
   cachedClient = {
     transporter,
@@ -93,7 +113,6 @@ export const getMailClient = (): MailClient => {
     isVerified: false,
   };
 
-  // Verify connection asynchronously (don't block)
   verifyConnection().catch((err) => {
     console.error("[MailClient] Connection verification failed:", err.message);
   });
@@ -101,81 +120,33 @@ export const getMailClient = (): MailClient => {
   return cachedClient;
 };
 
-/**
- * Verify SMTP connection is working
- * Call this on server startup to catch config issues early
- */
 export const verifyConnection = async (): Promise<boolean> => {
   try {
     const client = getMailClient();
     if (client.isVerified) {
       return true;
     }
-    
-    console.log("[MailClient] Verifying SMTP connection...");
+
+    console.log("[MailClient] Verifying Mailgun connection...");
     const startTime = Date.now();
     await client.transporter.verify();
     const elapsed = Date.now() - startTime;
-    
+
     client.isVerified = true;
-    console.log(`[MailClient] ✓ SMTP connection verified (${elapsed}ms)`);
+    console.log(`[MailClient] ✓ Mailgun connection verified (${elapsed}ms)`);
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("[MailClient] ✗ SMTP verification failed:", errorMessage);
+    console.error("[MailClient] ✗ Mailgun verification failed:", errorMessage);
     throw error;
   }
 };
 
-/**
- * Reset the mail client (useful for testing or config changes)
- */
 export const resetMailClient = (): void => {
   if (cachedClient) {
     cachedClient.transporter.close();
     cachedClient = null;
+    mailgunClient = null;
     console.log("[MailClient] Client reset");
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

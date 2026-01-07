@@ -1067,6 +1067,10 @@ export const adminCreateRecoveryLink = async (req: AuthRequest, res: Response) =
       },
     });
 
+    // Log session mode for debugging
+    const isLiveSession = session.id.startsWith("cs_live_");
+    console.log(`[Stripe Recovery] Created session: ${session.id.substring(0, 20)}... (${isLiveSession ? "LIVE" : "TEST"} mode)`);
+
     order.paymentStatus = "awaiting_payment";
     order.payment = {
       ...order.payment,

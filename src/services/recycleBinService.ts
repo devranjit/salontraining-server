@@ -228,7 +228,7 @@ export async function sendExpiryWarning(items: any[]) {
   if (!items.length) return;
 
   const recipient =
-    process.env.ADMIN_ALERT_EMAIL || process.env.SMTP_FROM || null;
+    process.env.ADMIN_ALERT_EMAIL || process.env.MAIL_FROM || null;
   if (!recipient) return;
 
   const summary = items.map((item) => ({

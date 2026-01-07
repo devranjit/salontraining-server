@@ -290,6 +290,11 @@ export const createCheckoutSession = async (req: any, res: Response) => {
     }
 
     const session = await stripe().checkout.sessions.create(params);
+    
+    // Log session mode for debugging
+    const isLiveSession = session.id.startsWith("cs_live_");
+    console.log(`[Stripe Membership] Created session: ${session.id.substring(0, 20)}... (${isLiveSession ? "LIVE" : "TEST"} mode)`);
+    
     return res.json({ success: true, sessionId: session.id, url: session.url });
   } catch (err: any) {
     console.error("checkout error", err);
