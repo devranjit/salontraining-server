@@ -64,6 +64,11 @@ async function killProcessOnPort(port: number | string): Promise<boolean> {
 // BOOTSTRAP FUNCTIONS
 // -----------------------------------------
 async function bootstrap(): Promise<void> {
+  // [DEBUG] Check if Mailgun env vars are loaded (temporary - remove after debugging)
+  console.log(`[ENV DEBUG] MAILGUN_API_KEY: ${process.env.MAILGUN_API_KEY ? "LOADED" : "MISSING"}`);
+  console.log(`[ENV DEBUG] MAILGUN_DOMAIN: ${process.env.MAILGUN_DOMAIN ? "LOADED" : "MISSING"}`);
+  console.log(`[ENV DEBUG] MAIL_FROM: ${process.env.MAIL_FROM ? "LOADED" : "MISSING"}`);
+
   // 1. Connect to MongoDB
   await connectDB();
   console.log("✓ Database connected");
