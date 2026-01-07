@@ -40,6 +40,7 @@ import seekingEmploymentRoutes from "./routes/seekingEmployment.routes";
 import notificationRoutes from "./routes/notification.routes";
 import userRoutes from "./routes/user.routes";
 import versionHistoryRoutes from "./routes/versionHistory.routes";
+import backupRoutes from "./routes/backup.routes";
 import "./lib/cloudinary";
 
 // -----------------------------------------
@@ -227,6 +228,7 @@ app.use("/api/pro-verification", proVerificationRoutes);
 app.use("/api/seeking-employment", seekingEmploymentRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/version-history", versionHistoryRoutes);
+app.use("/api/admin/backups", backupRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

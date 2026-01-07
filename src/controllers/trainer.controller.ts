@@ -4,6 +4,7 @@ import User from "../models/User";
 import mongoose from "mongoose";
 import { createNotification, notifyAdmins } from "./notification.controller";
 import { createVersionSnapshot } from "../services/versionHistoryService";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 const normalizeCategory = (value?: string) => {
   const trimmed = (value || "").trim();
@@ -552,17 +553,20 @@ export const adminGetTrainerById = async (req: Request, res: Response) => {
 };
 
 // ===============================
-// ADMIN — Delete Trainer
+// ADMIN — Delete Trainer (moves to recycle bin)
 // ===============================
-export async function adminDeleteTrainer(req: Request, res: Response) {
+export async function adminDeleteTrainer(req: any, res: Response) {
   try {
-    const listing = await TrainerListing.findByIdAndDelete(req.params.id);
+    const listing = await TrainerListing.findById(req.params.id);
 
     if (!listing) {
       return res.status(404).json({ success: false, message: "Trainer not found" });
     }
 
-    return res.json({ success: true, message: "Trainer deleted", listing });
+    // Move to recycle bin instead of permanent deletion
+    await moveToRecycleBin("trainer", listing, { deletedBy: req.user?.id });
+
+    return res.json({ success: true, message: "Trainer moved to recycle bin", listing });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -9,6 +9,7 @@ import { dispatchEmailEvent } from "../services/emailService";
 import type { EmailEventKey } from "../constants/emailEvents";
 import { getStripeClient } from "../services/stripeClient";
 import { getMailClient } from "../services/mailClient";
+import { moveToRecycleBin } from "../services/recycleBinService";
 
 type AuthRequest = Request & { user?: any };
 
@@ -1113,7 +1114,7 @@ export const adminCreateRecoveryLink = async (req: AuthRequest, res: Response) =
   }
 };
 
-// Delete a single order
+// Delete a single order (moves to recycle bin)
 export const adminDeleteOrder = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -1127,19 +1128,26 @@ export const adminDeleteOrder = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    // Prevent deletion of paid orders that haven't been refunded
-    if (order.paymentStatus === "paid" && order.fulfillmentStatus !== "refunded") {
+    // Allow deletion for: delivered, refunded, cancelled orders OR unpaid orders
+    const allowedForDeletion = 
+      order.fulfillmentStatus === "delivered" ||
+      order.fulfillmentStatus === "refunded" ||
+      order.fulfillmentStatus === "cancelled" ||
+      order.paymentStatus !== "paid";
+
+    if (!allowedForDeletion) {
       return res.status(400).json({
         success: false,
-        message: "Cannot delete paid orders. Please process a refund first.",
+        message: "Cannot delete this order. Orders can only be deleted when Delivered, Refunded, Cancelled, or unpaid.",
       });
     }
 
-    await Order.findByIdAndDelete(id);
+    // Move to recycle bin instead of permanent deletion
+    await moveToRecycleBin("order", order, { deletedBy: req.user?.id });
 
     return res.json({
       success: true,
-      message: "Order deleted successfully",
+      message: "Order moved to recycle bin",
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -1149,7 +1157,7 @@ export const adminDeleteOrder = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Bulk delete orders
+// Bulk delete orders (moves to recycle bin)
 export const adminBulkDeleteOrders = async (req: AuthRequest, res: Response) => {
   try {
     const { orderIds, force } = req.body;
@@ -1180,28 +1188,38 @@ export const adminBulkDeleteOrders = async (req: AuthRequest, res: Response) => 
       });
     }
 
-    // Check for paid orders that haven't been refunded (unless force is true)
+    // Check for orders that cannot be deleted (unless force is true)
+    // Allow deletion for: delivered, refunded, cancelled orders OR unpaid orders
     if (!force) {
-      const paidOrders = orders.filter(
-        (o) => o.paymentStatus === "paid" && o.fulfillmentStatus !== "refunded"
-      );
+      const restrictedOrders = orders.filter((o) => {
+        const allowedForDeletion = 
+          o.fulfillmentStatus === "delivered" ||
+          o.fulfillmentStatus === "refunded" ||
+          o.fulfillmentStatus === "cancelled" ||
+          o.paymentStatus !== "paid";
+        return !allowedForDeletion;
+      });
       
-      if (paidOrders.length > 0) {
+      if (restrictedOrders.length > 0) {
         return res.status(400).json({
           success: false,
-          message: `Cannot delete ${paidOrders.length} paid order(s). Process refunds first or use force=true to override.`,
-          paidOrderIds: paidOrders.map((o) => o._id),
+          message: `Cannot delete ${restrictedOrders.length} order(s). Orders can only be deleted when Delivered, Refunded, Cancelled, or unpaid. Use force=true to override.`,
+          restrictedOrderIds: restrictedOrders.map((o) => o._id),
         });
       }
     }
 
-    // Delete orders
-    const result = await Order.deleteMany({ _id: { $in: orderIds } });
+    // Move orders to recycle bin instead of permanent deletion
+    let deletedCount = 0;
+    for (const order of orders) {
+      await moveToRecycleBin("order", order, { deletedBy: req.user?.id });
+      deletedCount++;
+    }
 
     return res.json({
       success: true,
-      message: `Successfully deleted ${result.deletedCount} order(s)`,
-      deletedCount: result.deletedCount,
+      message: `Successfully moved ${deletedCount} order(s) to recycle bin`,
+      deletedCount,
       requestedCount: orderIds.length,
     });
   } catch (error: any) {

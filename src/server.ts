@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { connectDB } from "./config/connectDB";
 import { ensureEmailDefaults } from "./services/emailService";
 import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/firebaseAdmin";
+import { initBackupScheduler } from "./services/backupService";
 import app from "./app";
 
 // -----------------------------------------
@@ -40,6 +41,16 @@ async function bootstrap(): Promise<void> {
       console.log("✓ Firebase Admin initialized");
     } catch (err) {
       console.warn("⚠ Firebase Admin initialization skipped:", err);
+    }
+  }
+
+  // 5. Initialize backup scheduler (runs daily)
+  if (process.env.DISABLE_BACKUP_SCHEDULER !== "true") {
+    try {
+      initBackupScheduler();
+      console.log("✓ Backup scheduler initialized");
+    } catch (err) {
+      console.warn("⚠ Backup scheduler initialization skipped:", err);
     }
   }
 }

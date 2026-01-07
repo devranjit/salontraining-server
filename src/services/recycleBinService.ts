@@ -11,6 +11,7 @@ import User from "../models/User";
 import Category from "../models/Category";
 import { RecycleBinItem } from "../models/RecycleBinItem";
 import { TrainerListing } from "../models/TrainerListing";
+import Order from "../models/Order";
 import { dispatchEmailEvent } from "./emailService";
 
 // Keep items for 15 days, then show a 5-day final warning window before purge.
@@ -29,7 +30,8 @@ type EntityKey =
   | "education-category"
   | "memberVideo"
   | "user"
-  | "category";
+  | "category"
+  | "order";
 
 type Metadata = Record<string, any>;
 
@@ -45,6 +47,7 @@ const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
   memberVideo: MemberVideo,
   user: User,
   category: Category,
+  order: Order,
 };
 
 const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
@@ -76,6 +79,21 @@ const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
       return {
         name: snapshot.name,
         description: snapshot.description,
+      };
+    case "order":
+      // Get item names for display
+      const itemNames = (snapshot.items || [])
+        .map((item: any) => item.name)
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(", ");
+      return {
+        title: itemNames || `Order #${snapshot.orderNumber}`,
+        orderNumber: snapshot.orderNumber,
+        email: snapshot.contactEmail,
+        grandTotal: snapshot.grandTotal,
+        paymentStatus: snapshot.paymentStatus,
+        fulfillmentStatus: snapshot.fulfillmentStatus,
       };
     default:
       return {};
