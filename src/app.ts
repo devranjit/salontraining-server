@@ -5,6 +5,9 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import mongoSanitize from "express-mongo-sanitize";
+import hpp from "hpp";
 import { apiCache, getCacheStats } from "./middleware/cache";
 
 // ROUTES
@@ -47,8 +50,29 @@ const app = express();
 // Trust proxy - required when behind Nginx/reverse proxy for rate limiting and getting real client IP
 app.set('trust proxy', 1);
 
+// -----------------------------------------
+// SECURITY MIDDLEWARE
+// -----------------------------------------
+// Helmet: Set secure HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for API (frontend handles this)
+  crossOriginEmbedderPolicy: false, // Allow embedding
+}));
+
+// Prevent NoSQL injection attacks
+app.use(mongoSanitize({
+  replaceWith: '_',
+  onSanitize: ({ req, key }) => {
+    console.warn(`[Security] NoSQL injection attempt blocked: ${key} in ${req.originalUrl}`);
+  },
+}));
+
+// Prevent HTTP Parameter Pollution
+app.use(hpp());
+
 app.use(
   express.json({
+    limit: '10mb', // Limit request body size
     verify: (req: any, _res, buf) => {
       // Store raw body for Stripe webhook signature verification
       if (
@@ -60,7 +84,7 @@ app.use(
     },
   })
 );
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // -----------------------------------------
@@ -215,9 +239,15 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
-// Cache stats endpoint (for monitoring)
+// Cache stats endpoint (for monitoring) - Protected in production
 app.get("/api/cache-stats", (req: Request, res: Response) => {
-  // Optional: Add admin auth check here in production
+  // In production, require admin secret or auth
+  if (process.env.NODE_ENV === "production") {
+    const adminSecret = req.headers["x-admin-secret"];
+    if (!adminSecret || adminSecret !== process.env.ADMIN_STATS_SECRET) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+  }
   const stats = getCacheStats();
   res.json({
     success: true,

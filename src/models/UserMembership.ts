@@ -13,6 +13,11 @@ export interface IUserMembership extends Document {
   stripePriceId?: string;
   cancelAtPeriodEnd?: boolean;
   metadata?: Record<string, any>;
+  // Archive fields
+  isArchived: boolean;
+  archivedAt?: Date;
+  archivedBy?: mongoose.Types.ObjectId;
+  archivedReason?: string;
 }
 
 const UserMembershipSchema = new Schema<IUserMembership>(
@@ -33,6 +38,11 @@ const UserMembershipSchema = new Schema<IUserMembership>(
     stripePriceId: { type: String },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     metadata: { type: Schema.Types.Mixed },
+    // Archive fields
+    isArchived: { type: Boolean, default: false },
+    archivedAt: { type: Date },
+    archivedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    archivedReason: { type: String },
   },
   { timestamps: true }
 );
@@ -40,6 +50,7 @@ const UserMembershipSchema = new Schema<IUserMembership>(
 UserMembershipSchema.index({ status: 1 });
 UserMembershipSchema.index({ stripeSubscriptionId: 1 });
 UserMembershipSchema.index({ stripeCustomerId: 1 });
+UserMembershipSchema.index({ isArchived: 1 });
 
 export const UserMembership = mongoose.model<IUserMembership>(
   "UserMembership",

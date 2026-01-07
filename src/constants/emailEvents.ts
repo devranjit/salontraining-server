@@ -15,10 +15,15 @@ export type EmailEventKey =
   | "admin.password-reset-request"
   | "admin.temp-password"
   | "order.paid"
+  | "order.pending"
+  | "order.free-order"
+  | "order.processing"
   | "order.shipped"
   | "order.out-for-delivery"
   | "order.delivered"
+  | "order.cancelled"
   | "order.refunded"
+  | "order.invoice"
   | "listing.submitted"
   | "listing.approved"
   | "listing.rejected"
@@ -856,6 +861,229 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
               <p style="margin:0;font-size:13px;color:#94a3b8;">Questions about your refund? Just reply to this email.</p>
             </td>
           </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.pending",
+    label: "Order Pending",
+    description: "Sent when an order is set to pending status.",
+    defaultSubject: "Order #{{order.number}} - Awaiting Payment",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Order Pending</h1>
+              <p style="margin:16px 0 0;color:#fef3c7;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, your order is awaiting payment.</p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px;">
+          <tr><td>
+            <p style="font-size:14px;color:#475569;">Order <strong>#{{order.number}}</strong> is currently pending. Please complete your payment to proceed.</p>
+            <p style="font-size:14px;color:#475569;margin-top:16px;">{{order.itemsHtml}}</p>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr><td style="padding:24px 28px;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Reply to this email or visit <a href="{{app.url}}/orders" style="color:#d57a2c;">your orders</a>.</p>
+          </td></tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.free-order",
+    label: "Free Order Confirmed",
+    description: "Sent when a free order (100% discount) is placed.",
+    defaultSubject: "Free Order Confirmed #{{order.number}} - SalonTraining",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#8b5cf6 0%,#a855f7 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">🎉 Free Order Confirmed!</h1>
+              <p style="margin:16px 0 0;color:#e9d5ff;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, great news!</p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px;">
+          <tr><td>
+            <div style="background:#f3e8ff;border:1px solid #d8b4fe;border-radius:12px;padding:16px;margin-bottom:20px;">
+              <p style="margin:0;font-size:14px;color:#7c3aed;font-weight:600;">✨ No payment was required for this order.</p>
+              <p style="margin:8px 0 0;font-size:13px;color:#6b7280;">Your 100% discount has been applied successfully!</p>
+            </div>
+            <p style="font-size:14px;color:#475569;"><strong>Order #{{order.number}}</strong></p>
+            {{order.itemsHtml}}
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr><td style="padding:24px 28px;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Reply to this email.</p>
+          </td></tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.processing",
+    label: "Order Processing",
+    description: "Sent when an order is being processed.",
+    defaultSubject: "Order #{{order.number}} is being processed",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0ea5e9 0%,#38bdf8 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">📦 Order Processing</h1>
+              <p style="margin:16px 0 0;color:#bae6fd;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, we're preparing your order!</p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px;">
+          <tr><td>
+            <p style="font-size:14px;color:#475569;">Order <strong>#{{order.number}}</strong> is now being processed and will be shipped soon.</p>
+            <p style="font-size:13px;color:#6b7280;margin-top:8px;">We'll send you another email with tracking information once it ships.</p>
+            <div style="margin-top:20px;">{{order.itemsHtml}}</div>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr><td style="padding:24px 28px;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Reply to this email.</p>
+          </td></tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.cancelled",
+    label: "Order Cancelled",
+    description: "Sent when an order is cancelled.",
+    defaultSubject: "Order #{{order.number}} has been cancelled",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#dc2626 0%,#ef4444 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Order Cancelled</h1>
+              <p style="margin:16px 0 0;color:#fecaca;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, your order has been cancelled.</p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px;">
+          <tr><td>
+            <p style="font-size:14px;color:#475569;">Order <strong>#{{order.number}}</strong> has been cancelled.</p>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:16px 0;">
+              <p style="margin:0;font-size:14px;color:#dc2626;font-weight:600;">What happens next?</p>
+              <ul style="margin:8px 0 0;padding-left:20px;color:#6b7280;font-size:13px;">
+                <li>If you paid, a refund will be processed within 5-10 business days.</li>
+                <li>If you have questions, please reply to this email.</li>
+              </ul>
+            </div>
+            <div style="margin-top:20px;">{{order.itemsHtml}}</div>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr><td style="padding:24px 28px;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#94a3b8;">We're sorry to see this order cancelled. We hope to serve you again soon!</p>
+          </td></tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "order.invoice",
+    label: "Order Invoice",
+    description: "Invoice sent manually by admin to customer.",
+    defaultSubject: "Invoice for Order #{{order.number}} - SalonTraining",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#94a3b8;">INVOICE</p>
+                    <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;">Order #{{order.number}}</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:{{order.statusColor}};border-radius:24px;padding:6px 14px;">
+                      <span style="color:#ffffff;font-size:12px;font-weight:600;">{{order.status}}</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:16px 0 0;color:#cbd5e1;font-size:14px;">Hi <strong style="color:#ffffff;">{{user.name}}</strong>, here is your invoice.</p>
+            </td>
+          </tr>
+        </table>
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;padding:28px;">
+          <tr><td>
+            {{order.freeOrderNote}}
+            
+            <h2 style="margin:0 0 16px;font-size:15px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.08em;">Order Details</h2>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              {{order.itemsHtml}}
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;background:#f8fafc;border-radius:12px;">
+              <tr><td style="padding:20px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="padding:6px 0;font-size:14px;color:#64748b;">Subtotal</td>
+                    <td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">\${{order.totals.items}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:14px;color:#64748b;">Shipping</td>
+                    <td style="padding:6px 0;font-size:14px;color:#0f172a;text-align:right;font-weight:500;">\${{order.totals.shipping}}</td>
+                  </tr>
+                  {{order.discountHtml}}
+                  <tr>
+                    <td colspan="2" style="padding-top:12px;border-top:2px dashed #cbd5e1;"></td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;font-size:18px;font-weight:700;color:#0f172a;">Total</td>
+                    <td style="padding:8px 0;font-size:22px;font-weight:700;color:#0f172a;text-align:right;">\${{order.totals.grand}}</td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;">
+              <tr>
+                <td width="48%" style="vertical-align:top;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                    <tr><td style="padding:18px;">
+                      <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📍 Shipping To</p>
+                      <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">{{order.shippingName}}</p>
+                      <p style="margin:6px 0 0;font-size:13px;color:#475569;line-height:1.5;white-space:pre-line;">{{order.shippingAddress}}</p>
+                    </td></tr>
+                  </table>
+                </td>
+                <td width="4%"></td>
+                <td width="48%" style="vertical-align:top;">
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                    <tr><td style="padding:18px;">
+                      <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">📧 Contact</p>
+                      <p style="margin:0;font-size:13px;color:#475569;"><strong>Email:</strong> {{order.contactEmail}}</p>
+                      <p style="margin:6px 0 0;font-size:13px;color:#475569;"><strong>Phone:</strong> {{order.contactPhone}}</p>
+                    </td></tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr><td style="padding:24px 28px;text-align:center;">
+            <p style="margin:0 0 8px;font-size:14px;color:#475569;">Thank you for shopping with SalonTraining!</p>
+            <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Reply to this email or contact support@salontraining.com</p>
+          </td></tr>
         </table>
       </div>
     `,

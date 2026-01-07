@@ -14,6 +14,7 @@ import {
   adminBulkDeleteOrders,
   adminBulkUpdateStatus,
   adminCreateRecoveryLink,
+  adminSendInvoice,
 } from "../controllers/order.controller";
 
 const router = Router();
@@ -36,6 +37,7 @@ router.post("/admin/:id/shipping-event", protect, managerOrAdmin, adminAddShippi
 router.patch("/admin/:id/refund", protect, managerOrAdmin, adminProcessRefund);
 router.delete("/admin/:id", protect, managerOrAdmin, adminDeleteOrder);
 router.post("/admin/:id/recovery-link", protect, managerOrAdmin, adminCreateRecoveryLink);
+router.post("/admin/:id/send-invoice", protect, managerOrAdmin, adminSendInvoice);
 
 // Customer routes that rely on :id must be last
 router.post("/:id/refund-request", protect, requestRefund);

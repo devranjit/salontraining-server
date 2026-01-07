@@ -62,22 +62,52 @@ const couponSchema = new mongoose.Schema(
       type: Date,
       default: null, // null = no expiration
     },
-    // Product restrictions
+    
+    // ========================================
+    // SHIPPING DISCOUNT
+    // ========================================
+    // Whether this coupon also applies to shipping cost
+    applyToShipping: {
+      type: Boolean,
+      default: false,
+    },
+    
+    // ========================================
+    // PRODUCT SCOPE
+    // ========================================
+    // How this coupon applies to products:
+    // - "all": applies to all store products
+    // - "include": applies ONLY to specified products
+    // - "exclude": applies to all EXCEPT specified products
+    productScope: {
+      type: String,
+      enum: ["all", "include", "exclude"],
+      default: "all",
+    },
+    
+    // Products for include/exclude scope
+    scopedProducts: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+    }],
+    
+    // LEGACY: Product restrictions (kept for backward compatibility)
     applicableTo: {
       type: String,
       enum: ["all", "specific_products", "specific_categories"],
       default: "all",
     },
-    // Specific products this coupon applies to
+    // LEGACY: Specific products this coupon applies to
     products: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
     }],
-    // Specific categories this coupon applies to
+    // LEGACY: Specific categories this coupon applies to
     categories: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
     }],
+    
     // Only for store products (not user listings)
     storeOnly: {
       type: Boolean,

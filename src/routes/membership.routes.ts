@@ -22,6 +22,9 @@ import {
   adminListMemberships,
   adminUpdateMembership,
   adminExtendMembership,
+  adminArchiveMembership,
+  adminRestoreMembership,
+  adminCleanupOrphanedMemberships,
   handleStripeWebhook,
   getStripeConfig,
 } from "../controllers/membership.controller";
@@ -53,6 +56,9 @@ router.delete("/admin/coupons/:id", protect, adminOnly, adminDeleteCoupon);
 router.get("/admin/users", protect, adminOnly, adminListMemberships);
 router.patch("/admin/users/:id", protect, adminOnly, adminUpdateMembership);
 router.post("/admin/users/:id/extend", protect, adminOnly, adminExtendMembership);
+router.post("/admin/users/:id/archive", protect, adminOnly, adminArchiveMembership);
+router.post("/admin/users/:id/restore", protect, adminOnly, adminRestoreMembership);
+router.post("/admin/cleanup-orphaned", protect, adminOnly, adminCleanupOrphanedMemberships);
 
 // Stripe webhook (no auth)
 router.post("/stripe/webhook", handleStripeWebhook);

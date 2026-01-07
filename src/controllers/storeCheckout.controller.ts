@@ -319,33 +319,50 @@ interface CheckoutSessionPayload {
   couponCode?: string;
 }
 
+// Types for coupon calculation
+type CartItem = {
+  product: string;
+  subtotal: number;
+};
+
+type CouponResult = {
+  valid: boolean;
+  discount: number;
+  shippingDiscount: number;
+  coupon?: any;
+  message?: string;
+  applicableSubtotal?: number;
+};
+
 // Validate coupon and calculate discount
 async function validateAndCalculateCoupon(
   couponCode: string,
   cartTotal: number,
   productIds: string[],
-  userId?: string
-): Promise<{ valid: boolean; discount: number; coupon?: any; message?: string }> {
+  userId?: string,
+  shippingCost: number = 0,
+  cartItems?: CartItem[]
+): Promise<CouponResult> {
   const coupon = await Coupon.findOne({
     code: couponCode.toUpperCase(),
     isActive: true,
   });
 
   if (!coupon) {
-    return { valid: false, discount: 0, message: "Invalid coupon code" };
+    return { valid: false, discount: 0, shippingDiscount: 0, message: "Invalid coupon code" };
   }
 
   // Check dates
   if (coupon.startDate && new Date() < coupon.startDate) {
-    return { valid: false, discount: 0, message: "This coupon is not yet active" };
+    return { valid: false, discount: 0, shippingDiscount: 0, message: "This coupon is not yet active" };
   }
   if (coupon.endDate && new Date() > coupon.endDate) {
-    return { valid: false, discount: 0, message: "This coupon has expired" };
+    return { valid: false, discount: 0, shippingDiscount: 0, message: "This coupon has expired" };
   }
 
   // Check usage limit
   if (coupon.usageLimit && coupon.usageCount >= coupon.usageLimit) {
-    return { valid: false, discount: 0, message: "This coupon has reached its usage limit" };
+    return { valid: false, discount: 0, shippingDiscount: 0, message: "This coupon has reached its usage limit" };
   }
 
   // Check minimum order
@@ -353,6 +370,7 @@ async function validateAndCalculateCoupon(
     return {
       valid: false,
       discount: 0,
+      shippingDiscount: 0,
       message: `Minimum order amount of $${coupon.minimumOrderAmount} required`,
     };
   }
@@ -363,7 +381,7 @@ async function validateAndCalculateCoupon(
       (u) => u.user?.toString() === userId
     ).length;
     if (userUsageCount >= coupon.usageLimitPerUser) {
-      return { valid: false, discount: 0, message: "You have already used this coupon" };
+      return { valid: false, discount: 0, shippingDiscount: 0, message: "You have already used this coupon" };
     }
   }
 
@@ -375,23 +393,118 @@ async function validateAndCalculateCoupon(
       return {
         valid: false,
         discount: 0,
+        shippingDiscount: 0,
         message: "This coupon only applies to store products",
       };
     }
   }
 
-  // Calculate discount
+  // ========================================
+  // PRODUCT SCOPE FILTERING
+  // ========================================
+  // Determine the applicable subtotal based on product scope
+  let applicableSubtotal = cartTotal;
+  
+  if (coupon.productScope && coupon.productScope !== "all" && coupon.scopedProducts?.length > 0) {
+    const scopedProductIds = coupon.scopedProducts.map((id: any) => id.toString());
+    
+    if (cartItems && cartItems.length > 0) {
+      if (coupon.productScope === "include") {
+        // Only count subtotals for products in the include list
+        applicableSubtotal = cartItems
+          .filter(item => scopedProductIds.includes(item.product.toString()))
+          .reduce((sum, item) => sum + item.subtotal, 0);
+      } else if (coupon.productScope === "exclude") {
+        // Exclude subtotals for products in the exclude list
+        applicableSubtotal = cartItems
+          .filter(item => !scopedProductIds.includes(item.product.toString()))
+          .reduce((sum, item) => sum + item.subtotal, 0);
+      }
+    } else {
+      // Fallback: use productIds to check if any products are applicable
+      if (coupon.productScope === "include") {
+        const matchingProducts = productIds.filter(id => scopedProductIds.includes(id));
+        if (matchingProducts.length === 0) {
+          return {
+            valid: false,
+            discount: 0,
+            shippingDiscount: 0,
+            message: "This coupon does not apply to any products in your cart",
+          };
+        }
+      } else if (coupon.productScope === "exclude") {
+        const nonExcludedProducts = productIds.filter(id => !scopedProductIds.includes(id));
+        if (nonExcludedProducts.length === 0) {
+          return {
+            valid: false,
+            discount: 0,
+            shippingDiscount: 0,
+            message: "This coupon does not apply to any products in your cart",
+          };
+        }
+      }
+    }
+  }
+
+  // If no applicable products, return error
+  if (applicableSubtotal <= 0) {
+    return {
+      valid: false,
+      discount: 0,
+      shippingDiscount: 0,
+      message: "This coupon does not apply to any products in your cart",
+    };
+  }
+
+  // ========================================
+  // CALCULATE PRODUCT DISCOUNT
+  // ========================================
   let discount = 0;
   if (coupon.discountType === "percentage") {
-    discount = (cartTotal * coupon.discountValue) / 100;
+    discount = (applicableSubtotal * coupon.discountValue) / 100;
     if (coupon.maximumDiscount && discount > coupon.maximumDiscount) {
       discount = coupon.maximumDiscount;
     }
   } else {
-    discount = Math.min(coupon.discountValue, cartTotal);
+    discount = Math.min(coupon.discountValue, applicableSubtotal);
   }
 
-  return { valid: true, discount: Number(discount.toFixed(2)), coupon };
+  // ========================================
+  // CALCULATE SHIPPING DISCOUNT
+  // ========================================
+  let shippingDiscount = 0;
+  if (coupon.applyToShipping && shippingCost > 0) {
+    if (coupon.discountType === "percentage") {
+      shippingDiscount = (shippingCost * coupon.discountValue) / 100;
+    } else {
+      // For fixed discounts, apply remaining discount to shipping after product discount
+      const remainingDiscount = coupon.discountValue - discount;
+      if (remainingDiscount > 0) {
+        shippingDiscount = Math.min(remainingDiscount, shippingCost);
+      }
+    }
+  }
+
+  // ========================================
+  // ENSURE TOTAL DISCOUNT DOESN'T EXCEED ORDER TOTAL
+  // ========================================
+  const totalOrderValue = cartTotal + shippingCost;
+  const totalDiscount = discount + shippingDiscount;
+  
+  if (totalDiscount > totalOrderValue) {
+    // Cap the discount to order total
+    const ratio = totalOrderValue / totalDiscount;
+    discount = discount * ratio;
+    shippingDiscount = shippingDiscount * ratio;
+  }
+
+  return { 
+    valid: true, 
+    discount: Number(discount.toFixed(2)), 
+    shippingDiscount: Number(shippingDiscount.toFixed(2)),
+    coupon,
+    applicableSubtotal: Number(applicableSubtotal.toFixed(2)),
+  };
 }
 
 // Create Stripe Checkout Session
@@ -481,15 +594,25 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
 
     // Validate and apply coupon
     let discountTotal = 0;
+    let shippingDiscountTotal = 0;
     let appliedCoupon: any = null;
 
     if (couponCode) {
       const productIds = normalizedItems.map((item) => item.product.toString());
+      
+      // Build cart items with product IDs and subtotals for product scope filtering
+      const cartItems: CartItem[] = normalizedItems.map((item) => ({
+        product: item.product.toString(),
+        subtotal: item.subtotal,
+      }));
+      
       const couponResult = await validateAndCalculateCoupon(
         couponCode,
         subtotal,
         productIds,
-        req.user._id.toString()
+        req.user._id.toString(),
+        shippingCost,
+        cartItems
       );
 
       if (!couponResult.valid) {
@@ -500,11 +623,17 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       }
 
       discountTotal = couponResult.discount;
+      shippingDiscountTotal = couponResult.shippingDiscount || 0;
       appliedCoupon = couponResult.coupon;
     }
 
-    // Calculate totals
-    const grandTotal = Math.max(0, subtotal + shippingCost - discountTotal);
+    // Calculate totals (shipping discount is applied to shipping cost)
+    const effectiveShippingCost = Math.max(0, shippingCost - shippingDiscountTotal);
+    const totalDiscount = discountTotal + shippingDiscountTotal;
+    const grandTotal = Math.max(0, subtotal + effectiveShippingCost - discountTotal);
+    
+    // Check if this is a free order (100% discount)
+    const isFreeOrder = grandTotal === 0 && (subtotal > 0 || shippingCost > 0);
 
     // Create pending order in database
     const order = await Order.create({
@@ -513,14 +642,16 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       itemsTotal: Number(subtotal.toFixed(2)),
       shippingCost: Number(shippingCost.toFixed(2)),
       taxTotal: 0,
-      discountTotal: Number(discountTotal.toFixed(2)),
+      discountTotal: Number(totalDiscount.toFixed(2)), // Includes product + shipping discount
       grandTotal: Number(grandTotal.toFixed(2)),
       contactEmail: contactEmail || req.user.email,
       contactPhone,
       notes,
       couponCode: appliedCoupon?.code,
-      paymentStatus: "awaiting_payment",
-      fulfillmentStatus: "pending",
+      // Free order handling: mark as paid if 100% discount
+      orderStatus: isFreeOrder ? "free_order" : undefined,
+      paymentStatus: isFreeOrder ? "paid" : "awaiting_payment",
+      fulfillmentStatus: isFreeOrder ? "processing" : "pending",
       shippingStatus: requiresShipping ? "pending" : "not_required",
       shippingMethod: selectedShippingOption?.methodName || (requiresShipping ? "pending" : "not_required"),
       shippingMethodId: selectedShippingOption?.methodId,
@@ -529,13 +660,61 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
       shippingQuoteSnapshot: selectedShippingOption || undefined,
       shippingAddress: requiresShipping ? shippingAddress : undefined,
       shippingTimeline: requiresShipping
-        ? [{ status: "pending", note: "Awaiting payment", createdBy: req.user._id }]
+        ? [{ status: isFreeOrder ? "processing" : "pending", note: isFreeOrder ? "Free order - no payment required" : "Awaiting payment", createdBy: req.user._id }]
         : [],
       payment: {
-        method: "stripe",
-        status: "pending",
+        method: isFreeOrder ? "free" : "stripe",
+        status: isFreeOrder ? "paid" : "pending",
+        paidAt: isFreeOrder ? new Date() : undefined,
       },
     });
+
+    // ========================================
+    // FREE ORDER HANDLING
+    // ========================================
+    // If order total is 0 (100% discount), skip Stripe checkout
+    if (isFreeOrder) {
+      // Record coupon usage for free orders
+      if (appliedCoupon) {
+        await Coupon.updateOne(
+          { code: appliedCoupon.code },
+          {
+            $inc: { usageCount: 1 },
+            $push: {
+              usedBy: {
+                user: req.user._id,
+                usedAt: new Date(),
+                orderId: order._id,
+              },
+            },
+          }
+        );
+      }
+      
+      // Update stock for free orders
+      const stockOps = normalizedItems.map((item: any) => ({
+        updateOne: {
+          filter: { _id: item.product },
+          update: item.productFormat !== "digital"
+            ? { $inc: { stock: -item.quantity, sales: item.quantity } }
+            : { $inc: { sales: item.quantity } },
+        },
+      }));
+      if (stockOps.length > 0) {
+        await Product.bulkWrite(stockOps);
+      }
+      
+      // Send order confirmation email for free orders
+      sendOrderConfirmation(order);
+      
+      return res.json({
+        success: true,
+        orderId: order._id,
+        isFreeOrder: true,
+        message: "Free order placed successfully - no payment required",
+        redirectUrl: `${frontendBase}/checkout/success/${order._id}?placed=1`,
+      });
+    }
 
     // Build Stripe line items
     const stripe = getStripeClient();
@@ -591,10 +770,15 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response) => 
     };
 
     // Add discount if coupon applied (with timeout)
-    if (discountTotal > 0 && appliedCoupon) {
-      const couponData: Stripe.CouponCreateParams = appliedCoupon.discountType === "percentage"
-        ? { percent_off: appliedCoupon.discountValue, duration: "once" }
-        : { amount_off: Math.round(discountTotal * 100), currency: "usd", duration: "once" };
+    // Use totalDiscount (product + shipping discount) for Stripe
+    if (totalDiscount > 0 && appliedCoupon) {
+      // For Stripe, we use a fixed amount coupon with the total discount
+      // This handles both product and shipping discounts correctly
+      const couponData: Stripe.CouponCreateParams = {
+        amount_off: Math.round(totalDiscount * 100),
+        currency: "usd",
+        duration: "once",
+      };
 
       const stripeCoupon = await withTimeout(
         stripe.coupons.create(couponData),
@@ -812,6 +996,35 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
       });
     }
 
+    // ========================================
+    // FREE ORDER HANDLING
+    // ========================================
+    // Free orders (100% discount) don't have a Stripe session
+    // Check if this is a free order and return success immediately
+    const isFreeOrder = order.orderStatus === "free_order" || 
+                       (order.payment?.method === "free" && order.grandTotal === 0);
+    
+    if (isFreeOrder) {
+      // For free orders, the order is already marked as paid during creation
+      // Just return success with the order data
+      console.log(`[verifyCheckoutSession] Free order ${orderId} verified in ${Date.now() - startTime}ms`);
+      
+      // Send confirmation email if not already sent
+      if (!order.confirmationEmailSent) {
+        sendOrderConfirmation(order);
+      }
+      
+      return res.json({
+        success: true,
+        paymentStatus: "paid",
+        isFreeOrder: true,
+        order,
+      });
+    }
+
+    // ========================================
+    // PAID ORDER HANDLING (Stripe verification)
+    // ========================================
     // Get session ID from order if not provided in query (WAF may strip long params)
     if (!sessionId && order.payment?.stripeSessionId) {
       sessionId = order.payment.stripeSessionId;
@@ -889,7 +1102,7 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
 // Preview coupon discount
 export const previewCoupon = async (req: AuthRequest, res: Response) => {
   try {
-    const { couponCode, items } = req.body;
+    const { couponCode, items, shippingCost = 0 } = req.body;
 
     if (!couponCode) {
       return res.status(400).json({
@@ -908,12 +1121,20 @@ export const previewCoupon = async (req: AuthRequest, res: Response) => {
     const cartSummary = await prepareCartPricing(items);
     const productIds = cartSummary.normalizedItems.map((item) => item.product.toString());
     const userId = req.user?._id?.toString();
+    
+    // Build cart items with product IDs and subtotals for product scope filtering
+    const cartItems: CartItem[] = cartSummary.normalizedItems.map((item) => ({
+      product: item.product.toString(),
+      subtotal: item.subtotal,
+    }));
 
     const result = await validateAndCalculateCoupon(
       couponCode,
       cartSummary.subtotal,
       productIds,
-      userId
+      userId,
+      Number(shippingCost) || 0,
+      cartItems
     );
 
     if (!result.valid) {
@@ -923,6 +1144,8 @@ export const previewCoupon = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const totalDiscount = result.discount + (result.shippingDiscount || 0);
+
     return res.json({
       success: true,
       coupon: {
@@ -930,8 +1153,13 @@ export const previewCoupon = async (req: AuthRequest, res: Response) => {
         discountType: result.coupon.discountType,
         discountValue: result.coupon.discountValue,
         description: result.coupon.description,
+        applyToShipping: result.coupon.applyToShipping || false,
+        productScope: result.coupon.productScope || "all",
       },
       discount: result.discount,
+      shippingDiscount: result.shippingDiscount || 0,
+      totalDiscount,
+      applicableSubtotal: result.applicableSubtotal,
       newSubtotal: Number((cartSummary.subtotal - result.discount).toFixed(2)),
     });
   } catch (error: any) {

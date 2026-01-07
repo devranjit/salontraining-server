@@ -325,13 +325,31 @@ export const cancelAutoRenew = async (req: any, res: Response) => {
   }
 };
 
-export const adminListMemberships = async (_req: Request, res: Response) => {
+export const adminListMemberships = async (req: Request, res: Response) => {
   try {
-    const memberships = await UserMembership.find()
+    const { includeArchived, archivedOnly } = req.query;
+    
+    let filter: any = {};
+    
+    if (archivedOnly === "true") {
+      // Only show archived members
+      filter.isArchived = true;
+    } else if (includeArchived !== "true") {
+      // By default, exclude archived members
+      filter.$or = [{ isArchived: { $exists: false } }, { isArchived: false }];
+    }
+    // If includeArchived is true, don't filter by isArchived at all
+    
+    const memberships = await UserMembership.find(filter)
       .populate("user", "name email role")
       .populate("plan")
+      .populate("archivedBy", "name email")
       .sort({ updatedAt: -1 });
-    return res.json({ success: true, memberships });
+    
+    // Filter out memberships where the user no longer exists (orphaned records)
+    const validMemberships = memberships.filter((m) => m.user != null);
+    
+    return res.json({ success: true, memberships: validMemberships });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -465,6 +483,190 @@ export const adminExtendMembership = async (req: Request, res: Response) => {
     });
 
     return res.json({ success: true, membership: populated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Clean up orphaned memberships (where user no longer exists)
+export const adminCleanupOrphanedMemberships = async (_req: Request, res: Response) => {
+  try {
+    // Find all memberships
+    const allMemberships = await UserMembership.find().populate("user");
+    
+    // Find orphaned ones (where user is null after populate)
+    const orphanedIds = allMemberships
+      .filter((m) => m.user == null)
+      .map((m) => m._id);
+    
+    if (orphanedIds.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: "No orphaned memberships found",
+        deletedCount: 0,
+      });
+    }
+    
+    // Delete orphaned memberships
+    const result = await UserMembership.deleteMany({ _id: { $in: orphanedIds } });
+    
+    await logEvent({
+      type: "status_change",
+      message: `Cleaned up ${result.deletedCount} orphaned membership records`,
+      data: { orphanedIds: orphanedIds.map(id => id.toString()) },
+    });
+    
+    return res.json({ 
+      success: true, 
+      message: `Deleted ${result.deletedCount} orphaned membership records`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Archive a membership (soft delete)
+export const adminArchiveMembership = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.user?._id || req.user?.id;
+    
+    const membership = await UserMembership.findById(id);
+
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+
+    if (membership.isArchived) {
+      return res.status(400).json({ success: false, message: "Membership is already archived" });
+    }
+
+    // Safety check: Don't allow archiving active members without explicit confirmation
+    if (membership.status === "active") {
+      const forceArchive = req.body.forceArchive;
+      if (!forceArchive) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Cannot archive active members. Change status first or set forceArchive: true",
+          requiresConfirmation: true,
+        });
+      }
+    }
+
+    const userIdString = membership.user.toString();
+
+    // Cancel Stripe subscription if exists to stop future billing
+    if (membership.stripeSubscriptionId) {
+      try {
+        await stripe().subscriptions.cancel(membership.stripeSubscriptionId);
+      } catch (stripeErr: any) {
+        // Log but don't fail - subscription might already be cancelled
+        console.warn("Could not cancel Stripe subscription during archive:", stripeErr.message);
+      }
+    }
+
+    // Archive the membership
+    membership.isArchived = true;
+    membership.archivedAt = new Date();
+    membership.archivedBy = adminId;
+    membership.archivedReason = reason || "Archived by admin";
+    membership.autoRenew = false;
+    membership.cancelAtPeriodEnd = true;
+    
+    // Keep the original status for reference, but ensure no access
+    await membership.save();
+
+    // Revoke member access
+    await setUserRoleForMembership(userIdString, false);
+
+    // Log the archive action
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "status_change",
+      message: `Membership archived by admin`,
+      data: {
+        archivedBy: adminId,
+        reason: reason || "No reason provided",
+        previousStatus: membership.status,
+      },
+    });
+
+    const populated = await UserMembership.findById(membership._id)
+      .populate("user", "name email role")
+      .populate("plan")
+      .populate("archivedBy", "name email");
+
+    return res.json({ 
+      success: true, 
+      message: "Membership archived successfully",
+      membership: populated,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Restore an archived membership
+export const adminRestoreMembership = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { restoreToStatus } = req.body;
+    const adminId = req.user?._id || req.user?.id;
+    
+    const membership = await UserMembership.findById(id);
+
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+
+    if (!membership.isArchived) {
+      return res.status(400).json({ success: false, message: "Membership is not archived" });
+    }
+
+    // Restore the membership
+    membership.isArchived = false;
+    membership.archivedAt = undefined;
+    membership.archivedBy = undefined;
+    membership.archivedReason = undefined;
+    
+    // Optionally restore to a specific status
+    if (restoreToStatus && ["active", "expired", "canceled", "pending", "past_due", "hold"].includes(restoreToStatus)) {
+      membership.status = restoreToStatus;
+    }
+    // Otherwise keep the status it had when archived
+    
+    await membership.save();
+
+    // If restoring to active, grant access
+    const userIdString = membership.user.toString();
+    if (membership.status === "active") {
+      await setUserRoleForMembership(userIdString, true);
+    }
+
+    // Log the restore action
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "status_change",
+      message: `Membership restored from archive by admin`,
+      data: {
+        restoredBy: adminId,
+        restoredToStatus: membership.status,
+      },
+    });
+
+    const populated = await UserMembership.findById(membership._id)
+      .populate("user", "name email role")
+      .populate("plan");
+
+    return res.json({ 
+      success: true, 
+      message: "Membership restored successfully",
+      membership: populated,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -246,12 +246,50 @@ export const createCoupon = async (req: any, res: Response) => {
       categories,
       storeOnly,
       isActive,
+      // New fields
+      applyToShipping,
+      productScope,
+      scopedProducts,
     } = req.body;
 
+    // Validation
     if (!code || !discountValue) {
       return res.status(400).json({
         success: false,
         message: "Code and discount value are required",
+      });
+    }
+    
+    // Validate discount value
+    if (Number(discountValue) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Discount value must be greater than 0",
+      });
+    }
+    
+    // Validate percentage not > 100
+    if (discountType === "percentage" && Number(discountValue) > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Percentage discount cannot exceed 100%",
+      });
+    }
+    
+    // Validate fixed discount not greater than max discount (if set)
+    if (discountType === "fixed" && maximumDiscount && Number(discountValue) > Number(maximumDiscount)) {
+      return res.status(400).json({
+        success: false,
+        message: "Fixed discount cannot be greater than max discount",
+      });
+    }
+    
+    // Validate product selection when product-scoped
+    if ((productScope === "include" || productScope === "exclude") && 
+        (!scopedProducts || scopedProducts.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one product for product-scoped coupons",
       });
     }
 
@@ -281,6 +319,10 @@ export const createCoupon = async (req: any, res: Response) => {
       storeOnly: storeOnly !== false,
       isActive: isActive !== false,
       createdBy: req.user.id,
+      // New fields
+      applyToShipping: applyToShipping === true,
+      productScope: productScope || "all",
+      scopedProducts: scopedProducts || [],
     });
 
     return res.json({
@@ -299,6 +341,41 @@ export const updateCoupon = async (req: any, res: Response) => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Validation
+    if (updates.discountValue !== undefined && Number(updates.discountValue) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Discount value must be greater than 0",
+      });
+    }
+    
+    // Validate percentage not > 100
+    if (updates.discountType === "percentage" && updates.discountValue !== undefined && Number(updates.discountValue) > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Percentage discount cannot exceed 100%",
+      });
+    }
+    
+    // Validate fixed discount not greater than max discount (if set)
+    if (updates.discountType === "fixed" && updates.maximumDiscount && updates.discountValue !== undefined) {
+      if (Number(updates.discountValue) > Number(updates.maximumDiscount)) {
+        return res.status(400).json({
+          success: false,
+          message: "Fixed discount cannot be greater than max discount",
+        });
+      }
+    }
+    
+    // Validate product selection when product-scoped
+    if ((updates.productScope === "include" || updates.productScope === "exclude") && 
+        (!updates.scopedProducts || updates.scopedProducts.length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one product for product-scoped coupons",
+      });
+    }
+
     // If updating code, check it doesn't conflict
     if (updates.code) {
       const existing = await Coupon.findOne({
@@ -312,6 +389,11 @@ export const updateCoupon = async (req: any, res: Response) => {
         });
       }
       updates.code = updates.code.toUpperCase();
+    }
+    
+    // Clear scoped products if switching to "all"
+    if (updates.productScope === "all") {
+      updates.scopedProducts = [];
     }
 
     const coupon = await Coupon.findByIdAndUpdate(id, updates, { new: true });

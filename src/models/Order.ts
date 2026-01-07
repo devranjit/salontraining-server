@@ -35,6 +35,15 @@ type ShippingHistory = {
   createdBy?: mongoose.Types.ObjectId;
 };
 
+type StatusChangeLog = {
+  previousStatus: string;
+  newStatus: string;
+  orderStatus?: string;
+  changedBy?: mongoose.Types.ObjectId;
+  changedAt: Date;
+  note?: string;
+};
+
 type ShippingAddress = {
   fullName: string;
   line1: string;
@@ -74,9 +83,11 @@ export interface IOrder extends Document {
   taxTotal: number;
   discountTotal: number;
   grandTotal: number;
+  orderStatus?: "pending" | "free_order" | "processing" | "shipped" | "delivered" | "cancelled" | "refunded";
   paymentStatus: "pending" | "awaiting_payment" | "paid" | "failed" | "refunded" | "partial";
   fulfillmentStatus: "pending" | "processing" | "ready_to_ship" | "shipped" | "delivered" | "cancelled" | "refunded";
-  shippingStatus: "not_required" | "pending" | "label_created" | "in_transit" | "delivered" | "returned" | "cancelled";
+  shippingStatus: "not_required" | "pending" | "label_created" | "in_transit" | "out_for_delivery" | "delivered" | "returned" | "cancelled";
+  statusHistory: StatusChangeLog[];
   shippingAddress?: ShippingAddress;
   shippingMethod?: string;
   shippingMethodId?: string;
@@ -206,6 +217,18 @@ const shippingTimelineSchema = new Schema<ShippingHistory>(
   { _id: false }
 );
 
+const statusChangeLogSchema = new Schema<StatusChangeLog>(
+  {
+    previousStatus: String,
+    newStatus: String,
+    orderStatus: String,
+    changedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    changedAt: { type: Date, default: Date.now },
+    note: String,
+  },
+  { _id: false }
+);
+
 const paymentSchema = new Schema(
   {
     method: { type: String, default: "manual" },
@@ -252,6 +275,10 @@ const orderSchema = new Schema<IOrder>(
     taxTotal: { type: Number, default: 0 },
     discountTotal: { type: Number, default: 0 },
     grandTotal: { type: Number, required: true },
+    orderStatus: {
+      type: String,
+      enum: ["pending", "free_order", "processing", "shipped", "delivered", "cancelled", "refunded"],
+    },
     paymentStatus: {
       type: String,
       enum: ["pending", "awaiting_payment", "paid", "failed", "refunded", "partial"],
@@ -264,9 +291,10 @@ const orderSchema = new Schema<IOrder>(
     },
     shippingStatus: {
       type: String,
-      enum: ["not_required", "pending", "label_created", "in_transit", "delivered", "returned", "cancelled"],
+      enum: ["not_required", "pending", "label_created", "in_transit", "out_for_delivery", "delivered", "returned", "cancelled"],
       default: "not_required",
     },
+    statusHistory: { type: [statusChangeLogSchema], default: [] },
     shippingAddress: shippingAddressSchema,
     shippingMethod: { type: String, default: "standard" },
     shippingMethodId: String,

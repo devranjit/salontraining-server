@@ -15,7 +15,81 @@ type AuthRequest = Request & { user?: any };
 const PAYMENT_STATUSES = ["pending", "awaiting_payment", "paid", "failed", "refunded", "partial"] as const;
 const FULFILLMENT_STATUSES = ["pending", "processing", "ready_to_ship", "shipped", "delivered", "cancelled", "refunded"] as const;
 const SHIPPING_STATUSES = ["not_required", "pending", "label_created", "in_transit", "out_for_delivery", "delivered", "returned", "cancelled"] as const;
+const ORDER_STATUSES = ["pending", "free_order", "processing", "shipped", "delivered", "cancelled", "refunded"] as const;
 const isValidObjectId = (value: string) => mongoose.Types.ObjectId.isValid(value);
+
+// Map unified orderStatus to the 3 underlying statuses
+type StatusMapping = {
+  paymentStatus: typeof PAYMENT_STATUSES[number];
+  fulfillmentStatus: typeof FULFILLMENT_STATUSES[number];
+  shippingStatus: typeof SHIPPING_STATUSES[number];
+};
+
+function mapOrderStatusToUnderlyingStatuses(
+  orderStatus: string,
+  currentOrder: { grandTotal?: number; shippingStatus?: string; paymentStatus?: string }
+): StatusMapping {
+  const isFreeOrder = currentOrder.grandTotal === 0;
+  const requiresShipping = currentOrder.shippingStatus !== "not_required";
+  
+  switch (orderStatus) {
+    case "pending":
+      return {
+        paymentStatus: "pending",
+        fulfillmentStatus: "pending",
+        shippingStatus: requiresShipping ? "pending" : "not_required",
+      };
+    
+    case "free_order":
+      return {
+        paymentStatus: "paid", // Free orders are considered "paid" (no payment needed)
+        fulfillmentStatus: "processing",
+        shippingStatus: requiresShipping ? "pending" : "not_required",
+      };
+    
+    case "processing":
+      return {
+        paymentStatus: isFreeOrder ? "paid" : (currentOrder.paymentStatus === "paid" ? "paid" : "paid"),
+        fulfillmentStatus: "processing",
+        shippingStatus: requiresShipping ? "pending" : "not_required",
+      };
+    
+    case "shipped":
+      return {
+        paymentStatus: isFreeOrder ? "paid" : "paid",
+        fulfillmentStatus: "shipped",
+        shippingStatus: "in_transit",
+      };
+    
+    case "delivered":
+      return {
+        paymentStatus: isFreeOrder ? "paid" : "paid",
+        fulfillmentStatus: "delivered",
+        shippingStatus: "delivered",
+      };
+    
+    case "cancelled":
+      return {
+        paymentStatus: "failed",
+        fulfillmentStatus: "cancelled",
+        shippingStatus: requiresShipping ? "cancelled" : "not_required",
+      };
+    
+    case "refunded":
+      return {
+        paymentStatus: "refunded",
+        fulfillmentStatus: "refunded",
+        shippingStatus: requiresShipping ? "returned" : "not_required",
+      };
+    
+    default:
+      return {
+        paymentStatus: "pending",
+        fulfillmentStatus: "pending",
+        shippingStatus: requiresShipping ? "pending" : "not_required",
+      };
+  }
+}
 
 const ensureAuth = (req: AuthRequest, res: Response) => {
   if (!req.user) {
@@ -35,12 +109,54 @@ const FRONTEND_URL = (
 // Helper to format money
 const formatMoney = (n: any) => Number(n || 0).toFixed(2);
 
+// Map unified order status to email event key
+function getEmailEventForOrderStatus(orderStatus: string): EmailEventKey | null {
+  const statusToEventMap: Record<string, EmailEventKey> = {
+    pending: "order.pending",
+    free_order: "order.free-order",
+    processing: "order.processing",
+    shipped: "order.shipped",
+    delivered: "order.delivered",
+    cancelled: "order.cancelled",
+    refunded: "order.refunded",
+  };
+  return statusToEventMap[orderStatus] || null;
+}
+
+// Get status color for email templates
+function getStatusColor(orderStatus: string): string {
+  const colorMap: Record<string, string> = {
+    pending: "#f59e0b",
+    free_order: "#8b5cf6",
+    processing: "#0ea5e9",
+    shipped: "#1e40af",
+    delivered: "#ea580c",
+    cancelled: "#dc2626",
+    refunded: "#475569",
+  };
+  return colorMap[orderStatus] || "#6b7280";
+}
+
+// Get human-readable status label
+function getStatusLabel(orderStatus: string): string {
+  const labelMap: Record<string, string> = {
+    pending: "PENDING",
+    free_order: "FREE ORDER",
+    processing: "PROCESSING",
+    shipped: "SHIPPED",
+    delivered: "DELIVERED",
+    cancelled: "CANCELLED",
+    refunded: "REFUNDED",
+  };
+  return labelMap[orderStatus] || orderStatus.toUpperCase();
+}
+
 // Helper to send order status update emails
 async function sendOrderStatusEmail(order: any, eventKey: EmailEventKey) {
   try {
     const user = await User.findById(order.user).select("name email");
     const to = order.contactEmail || user?.email;
-    if (!to) return;
+    if (!to) return { sent: false, reason: "no_email" };
 
     // Prepare shipping address string
     const shippingAddress = order.shippingAddress
@@ -78,13 +194,44 @@ async function sendOrderStatusEmail(order: any, eventKey: EmailEventKey) {
       `)
       .join("");
 
+    // Discount HTML (if applicable)
+    const discountHtml = order.discountTotal > 0 
+      ? `<tr>
+          <td style="padding:6px 0;font-size:14px;color:#059669;">Discount</td>
+          <td style="padding:6px 0;font-size:14px;color:#059669;text-align:right;font-weight:500;">-$${formatMoney(order.discountTotal)}</td>
+        </tr>`
+      : "";
+    
+    // Free order note for invoice
+    const isFreeOrder = order.grandTotal === 0 || order.orderStatus === "free_order";
+    const freeOrderNote = isFreeOrder
+      ? `<div style="background:#f3e8ff;border:1px solid #d8b4fe;border-radius:12px;padding:16px;margin-bottom:20px;">
+          <p style="margin:0;font-size:14px;color:#7c3aed;font-weight:600;">✨ No payment was required for this order.</p>
+          <p style="margin:8px 0 0;font-size:13px;color:#6b7280;">This order was placed with a 100% discount.</p>
+        </div>`
+      : "";
+
     const orderData = {
       id: order._id.toString(),
       number: order.orderNumber || order._id.toString(),
       itemsHtml,
-      shippingName: order.shippingAddress?.fullName,
-      shippingAddress,
+      shippingName: order.shippingAddress?.fullName || "Customer",
+      shippingAddress: shippingAddress || "Digital delivery",
       shippingMethod: order.shippingOptionLabel || order.shippingMethod || "Standard",
+      contactEmail: order.contactEmail || user?.email || "",
+      contactPhone: order.contactPhone || "—",
+      // Status info for invoice
+      status: getStatusLabel(order.orderStatus || order.fulfillmentStatus || "pending"),
+      statusColor: getStatusColor(order.orderStatus || order.fulfillmentStatus || "pending"),
+      freeOrderNote,
+      // Totals for invoice
+      totals: {
+        items: formatMoney(order.itemsTotal),
+        shipping: formatMoney(order.shippingCost || 0),
+        discount: formatMoney(order.discountTotal || 0),
+        grand: formatMoney(order.grandTotal),
+      },
+      discountHtml,
       // Tracking info
       carrier: order.shippingTracking?.carrier || "Carrier TBD",
       trackingNumber: order.shippingTracking?.trackingNumber || "—",
@@ -92,6 +239,7 @@ async function sendOrderStatusEmail(order: any, eventKey: EmailEventKey) {
         ? new Date(order.shippingTracking.estimatedDelivery).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
         : "To be determined",
       // Dates
+      date: new Date(order.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       shippedDate: order.shippingTracking?.shippedAt
         ? new Date(order.shippingTracking.shippedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
         : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
@@ -111,9 +259,27 @@ async function sendOrderStatusEmail(order: any, eventKey: EmailEventKey) {
         order: orderData,
       },
     });
+    return { sent: true };
   } catch (err) {
     console.error(`Failed to send ${eventKey} email:`, err);
+    return { sent: false, error: err };
   }
+}
+
+// Send order status change email based on unified orderStatus
+async function sendOrderStatusChangeEmail(order: any, newOrderStatus: string, previousOrderStatus?: string) {
+  // Don't send if status hasn't changed
+  if (previousOrderStatus && newOrderStatus === previousOrderStatus) {
+    return { sent: false, reason: "status_unchanged" };
+  }
+  
+  const eventKey = getEmailEventForOrderStatus(newOrderStatus);
+  if (!eventKey) {
+    console.log(`No email event defined for order status: ${newOrderStatus}`);
+    return { sent: false, reason: "no_event_defined" };
+  }
+  
+  return sendOrderStatusEmail(order, eventKey);
 }
 
 export const createOrder = async (req: AuthRequest, res: Response) => {
@@ -475,9 +641,11 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
     }
 
     const {
-      paymentStatus,
-      fulfillmentStatus,
-      shippingStatus,
+      orderStatus,
+      // Legacy fields for backward compatibility
+      paymentStatus: legacyPaymentStatus,
+      fulfillmentStatus: legacyFulfillmentStatus,
+      shippingStatus: legacyShippingStatus,
       trackingNumber,
       carrier,
       estimatedDelivery,
@@ -491,43 +659,122 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    if (paymentStatus) {
-      if (!PAYMENT_STATUSES.includes(paymentStatus)) {
-        return res.status(400).json({ success: false, message: "Invalid payment status" });
+    // Store previous statuses for comparison and logging
+    const previousOrderStatus = order.orderStatus;
+    const previousPaymentStatus = order.paymentStatus;
+    const previousFulfillmentStatus = order.fulfillmentStatus;
+    const previousShippingStatus = order.shippingStatus;
+
+    // Determine if we're using the new unified status or legacy approach
+    if (orderStatus && ORDER_STATUSES.includes(orderStatus)) {
+      // NEW UNIFIED STATUS APPROACH
+      
+      // Validation: Shipped status requires tracking info
+      if (orderStatus === "shipped") {
+        if (!trackingNumber?.trim()) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "Tracking number is required for Shipped status" 
+          });
+        }
+        if (!carrier?.trim()) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "Carrier is required for Shipped status" 
+          });
+        }
       }
-      order.paymentStatus = paymentStatus;
-      order.payment = order.payment || { method: "manual", status: paymentStatus };
-      order.payment.status = paymentStatus;
-      if (paymentStatus === "paid" && !order.payment.paidAt) {
+      
+      // Validation: Prevent conflicting states for free orders
+      if (order.grandTotal === 0 && orderStatus === "cancelled") {
+        // Free orders can't have payment "failed" - adjust to just cancel fulfillment
+        // This is acceptable, we'll handle it in the mapping
+      }
+      
+      // Map the unified status to the 3 underlying statuses
+      const mappedStatuses = mapOrderStatusToUnderlyingStatuses(orderStatus, {
+        grandTotal: order.grandTotal,
+        shippingStatus: order.shippingStatus,
+        paymentStatus: order.paymentStatus,
+      });
+      
+      // Apply the mapped statuses
+      order.orderStatus = orderStatus;
+      order.paymentStatus = mappedStatuses.paymentStatus;
+      order.fulfillmentStatus = mappedStatuses.fulfillmentStatus;
+      order.shippingStatus = mappedStatuses.shippingStatus;
+      
+      // Update payment object
+      order.payment = order.payment || { method: "manual", status: mappedStatuses.paymentStatus };
+      order.payment.status = mappedStatuses.paymentStatus;
+      
+      if (mappedStatuses.paymentStatus === "paid" && !order.payment.paidAt) {
         order.payment.paidAt = new Date();
       }
-      if (paymentStatus === "refunded") {
-        order.fulfillmentStatus = "refunded";
+      
+      // Add to shipping timeline for relevant status changes
+      if (mappedStatuses.shippingStatus !== previousShippingStatus) {
+        order.shippingTimeline.push({
+          status: mappedStatuses.shippingStatus,
+          note: note || `Order status changed to ${orderStatus}`,
+          createdBy: req.user?._id,
+        });
       }
-    }
-
-    if (fulfillmentStatus) {
-      if (!FULFILLMENT_STATUSES.includes(fulfillmentStatus)) {
-        return res.status(400).json({ success: false, message: "Invalid fulfillment status" });
+      
+      // Log the status change with timestamp and admin identifier
+      if (!order.statusHistory) {
+        order.statusHistory = [];
       }
-      order.fulfillmentStatus = fulfillmentStatus;
-    }
-
-    // Track previous status for email notifications
-    const previousShippingStatus = order.shippingStatus;
-    const previousPaymentStatus = order.paymentStatus;
-
-    if (shippingStatus) {
-      if (!SHIPPING_STATUSES.includes(shippingStatus)) {
-        return res.status(400).json({ success: false, message: "Invalid shipping status" });
-      }
-      order.shippingStatus = shippingStatus;
-      order.shippingTimeline.push({
-        status: shippingStatus,
-        note: note || `Status updated to ${shippingStatus}`,
-        createdBy: req.user?._id,
+      order.statusHistory.push({
+        previousStatus: previousOrderStatus || previousFulfillmentStatus,
+        newStatus: orderStatus,
+        orderStatus: orderStatus,
+        changedBy: req.user?._id,
+        changedAt: new Date(),
+        note: note || undefined,
       });
+      
+    } else {
+      // LEGACY APPROACH - Support old 3-field updates for backward compatibility
+      if (legacyPaymentStatus) {
+        if (!PAYMENT_STATUSES.includes(legacyPaymentStatus)) {
+          return res.status(400).json({ success: false, message: "Invalid payment status" });
+        }
+        order.paymentStatus = legacyPaymentStatus;
+        order.payment = order.payment || { method: "manual", status: legacyPaymentStatus };
+        order.payment.status = legacyPaymentStatus;
+        if (legacyPaymentStatus === "paid" && !order.payment.paidAt) {
+          order.payment.paidAt = new Date();
+        }
+        if (legacyPaymentStatus === "refunded") {
+          order.fulfillmentStatus = "refunded";
+        }
+      }
+
+      if (legacyFulfillmentStatus) {
+        if (!FULFILLMENT_STATUSES.includes(legacyFulfillmentStatus)) {
+          return res.status(400).json({ success: false, message: "Invalid fulfillment status" });
+        }
+        order.fulfillmentStatus = legacyFulfillmentStatus;
+      }
+
+      if (legacyShippingStatus) {
+        if (!SHIPPING_STATUSES.includes(legacyShippingStatus)) {
+          return res.status(400).json({ success: false, message: "Invalid shipping status" });
+        }
+        order.shippingStatus = legacyShippingStatus;
+        order.shippingTimeline.push({
+          status: legacyShippingStatus,
+          note: note || `Status updated to ${legacyShippingStatus}`,
+          createdBy: req.user?._id,
+        });
+      }
+    }
+    
+    // Update shipping tracking info (applies to both approaches)
+    if (trackingNumber || carrier || estimatedDelivery || shippedAt || deliveredAt) {
       order.shippingTracking = order.shippingTracking || {};
+      
       if (trackingNumber) {
         order.shippingTracking.trackingNumber = trackingNumber;
       }
@@ -539,12 +786,12 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
       }
       if (shippedAt) {
         order.shippingTracking.shippedAt = new Date(shippedAt);
-      } else if (shippingStatus === "in_transit" && !order.shippingTracking.shippedAt) {
+      } else if (order.shippingStatus === "in_transit" && !order.shippingTracking.shippedAt) {
         order.shippingTracking.shippedAt = new Date();
       }
       if (deliveredAt) {
         order.shippingTracking.deliveredAt = new Date(deliveredAt);
-      } else if (shippingStatus === "delivered" && !order.shippingTracking.deliveredAt) {
+      } else if (order.shippingStatus === "delivered" && !order.shippingTracking.deliveredAt) {
         order.shippingTracking.deliveredAt = new Date();
       }
     }
@@ -552,34 +799,43 @@ export const adminUpdateOrderStatus = async (req: AuthRequest, res: Response) =>
     await order.save();
 
     // Send email notifications based on status changes
-    // Only send if status actually changed (not on first set or same status)
-    if (shippingStatus && shippingStatus !== previousShippingStatus) {
-      if (shippingStatus === "in_transit" || shippingStatus === "label_created") {
-        // Order shipped
-        sendOrderStatusEmail(order, "order.shipped");
-      } else if (shippingStatus === "out_for_delivery") {
-        // Order out for delivery
-        sendOrderStatusEmail(order, "order.out-for-delivery");
-      } else if (shippingStatus === "delivered") {
-        // Order delivered
-        sendOrderStatusEmail(order, "order.delivered");
+    let emailResult: { sent: boolean; reason?: string; error?: unknown } = { sent: false, reason: "no_status_change" };
+    
+    // Use the unified orderStatus for email notifications when available
+    if (orderStatus && orderStatus !== previousOrderStatus) {
+      emailResult = await sendOrderStatusChangeEmail(order, orderStatus, previousOrderStatus);
+    } else {
+      // Legacy: Check individual status changes for backward compatibility
+      const newShippingStatus = order.shippingStatus;
+      const newPaymentStatus = order.paymentStatus;
+      const newFulfillmentStatus = order.fulfillmentStatus;
+      
+      if (newShippingStatus !== previousShippingStatus) {
+        if (newShippingStatus === "in_transit" || newShippingStatus === "label_created") {
+          emailResult = await sendOrderStatusEmail(order, "order.shipped");
+        } else if (newShippingStatus === "out_for_delivery") {
+          emailResult = await sendOrderStatusEmail(order, "order.out-for-delivery");
+        } else if (newShippingStatus === "delivered") {
+          emailResult = await sendOrderStatusEmail(order, "order.delivered");
+        }
       }
-    }
 
-    // Check for shipped in fulfillment status (alternative way to mark as shipped)
-    if (fulfillmentStatus === "shipped" && fulfillmentStatus !== order.fulfillmentStatus && previousShippingStatus !== "in_transit") {
-      sendOrderStatusEmail(order, "order.shipped");
-    }
+      // Check for shipped in fulfillment status
+      if (newFulfillmentStatus === "shipped" && previousFulfillmentStatus !== "shipped" && previousShippingStatus !== "in_transit") {
+        emailResult = await sendOrderStatusEmail(order, "order.shipped");
+      }
 
-    // Check for refund
-    if (paymentStatus === "refunded" && paymentStatus !== previousPaymentStatus) {
-      sendOrderStatusEmail(order, "order.refunded");
+      // Check for refund
+      if (newPaymentStatus === "refunded" && previousPaymentStatus !== "refunded") {
+        emailResult = await sendOrderStatusEmail(order, "order.refunded");
+      }
     }
 
     return res.json({
       success: true,
       message: "Order status updated",
       order,
+      emailSent: emailResult.sent,
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -676,6 +932,71 @@ export const adminProcessRefund = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to process refund",
+    });
+  }
+};
+
+// ===============================
+// ADMIN — Send Invoice Email
+// ===============================
+export const adminSendInvoice = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!ensureAuth(req, res)) return;
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    const order = await Order.findById(id).populate("user", "name email");
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    const customerEmail = order.contactEmail || (order.user as any)?.email;
+    if (!customerEmail) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No customer email found for this order" 
+      });
+    }
+
+    // Send the invoice email
+    const emailResult = await sendOrderStatusEmail(order, "order.invoice");
+    
+    if (emailResult.sent) {
+      // Log the invoice send in status history
+      if (!order.statusHistory) {
+        order.statusHistory = [];
+      }
+      order.statusHistory.push({
+        previousStatus: order.orderStatus || order.fulfillmentStatus,
+        newStatus: order.orderStatus || order.fulfillmentStatus,
+        orderStatus: order.orderStatus,
+        changedBy: req.user?._id,
+        changedAt: new Date(),
+        note: `Invoice email sent to ${customerEmail}`,
+      });
+      await order.save();
+
+      return res.json({
+        success: true,
+        message: `Invoice sent successfully to ${customerEmail}`,
+        emailSent: true,
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send invoice email. Please try again.",
+        emailSent: false,
+        error: emailResult.error,
+      });
+    }
+  } catch (error: any) {
+    console.error("Failed to send invoice:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to send invoice",
     });
   }
 };
