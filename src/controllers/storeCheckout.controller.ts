@@ -1031,6 +1031,15 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
     }
 
     if (!sessionId) {
+      // Check if order is in a failed/pending state (Stripe session creation failed)
+      if (order.paymentStatus === "awaiting_payment") {
+        console.log(`[verifyCheckoutSession] Order ${orderId} has no Stripe session - likely failed checkout`);
+        return res.status(400).json({
+          success: false,
+          message: "Payment was not completed. Please try placing your order again.",
+          canRetry: true,
+        });
+      }
       return res.status(400).json({
         success: false,
         message: "Session information not found",
@@ -1095,6 +1104,49 @@ export const verifyCheckoutSession = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to verify session",
+    });
+  }
+};
+
+// Debug: Check Stripe configuration (admin only)
+export const checkStripeConfig = async (req: AuthRequest, res: Response) => {
+  try {
+    const stripe = getStripeClient();
+    
+    // Get the API key prefix to determine mode
+    const secretKey = process.env.STRIPE_SECRET_KEY || "";
+    const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY || "";
+    
+    const isLiveMode = secretKey.startsWith("sk_live_");
+    const publishableLive = publishableKey.startsWith("pk_live_");
+    
+    // Try to make a simple API call to verify the key works
+    let apiWorking = false;
+    let apiError = "";
+    
+    try {
+      await stripe.balance.retrieve();
+      apiWorking = true;
+    } catch (err: any) {
+      apiError = err.message;
+    }
+    
+    return res.json({
+      success: true,
+      config: {
+        mode: isLiveMode ? "LIVE" : "TEST",
+        secretKeyPrefix: secretKey.substring(0, 8) + "...",
+        publishableKeyPrefix: publishableKey.substring(0, 8) + "...",
+        publishableMode: publishableLive ? "LIVE" : "TEST",
+        keysMatch: isLiveMode === publishableLive,
+        apiWorking,
+        apiError: apiError || undefined,
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
