@@ -13,6 +13,11 @@ export interface IUserMembership extends Document {
   stripePriceId?: string;
   cancelAtPeriodEnd?: boolean;
   metadata?: Record<string, any>;
+  couponId?: mongoose.Types.ObjectId;
+  couponCode?: string;
+  couponDiscountType?: "percent" | "amount";
+  couponAmount?: number;
+  couponAppliedAt?: Date;
   // Archive fields
   isArchived: boolean;
   archivedAt?: Date;
@@ -38,6 +43,11 @@ const UserMembershipSchema = new Schema<IUserMembership>(
     stripePriceId: { type: String },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     metadata: { type: Schema.Types.Mixed },
+    couponId: { type: Schema.Types.ObjectId, ref: "MembershipCoupon" },
+    couponCode: { type: String },
+    couponDiscountType: { type: String, enum: ["percent", "amount"] },
+    couponAmount: { type: Number },
+    couponAppliedAt: { type: Date },
     // Archive fields
     isArchived: { type: Boolean, default: false },
     archivedAt: { type: Date },

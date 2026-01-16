@@ -17,6 +17,7 @@ import {
 } from "../controllers/membershipCoupon.controller";
 import {
   getMyMembership,
+  previewCheckout,
   createCheckoutSession,
   cancelAutoRenew,
   adminListMemberships,
@@ -35,6 +36,7 @@ const router = express.Router();
 router.get("/plans", listActivePlans);
 router.get("/config", getStripeConfig);
 router.get("/me", protect, getMyMembership);
+router.post("/preview", protect, previewCheckout);
 router.post("/checkout", protect, createCheckoutSession);
 router.post("/cancel", protect, cancelAutoRenew);
 

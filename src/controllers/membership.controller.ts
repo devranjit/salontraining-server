@@ -7,6 +7,7 @@ import { User } from "../models/User";
 import { getStripeClient } from "../services/stripeClient";
 import { ensureStripePriceForPlan } from "../services/membershipStripe";
 import { dispatchEmailEvent } from "../services/emailService";
+import MembershipCoupon, { CouponDiscountType, IMembershipCoupon } from "../models/MembershipCoupon";
 
 const stripe = () => getStripeClient();
 
@@ -50,6 +51,86 @@ const logEvent = (payload: {
   message: string;
   data?: Record<string, any>;
 }) => MembershipLog.create(payload);
+
+const normalizeCouponCode = (code?: string) => code?.trim().toUpperCase();
+
+const calculateDiscountedAmount = (priceInCents: number, coupon: IMembershipCoupon) => {
+  const discountCents =
+    coupon.discountType === "percent"
+      ? Math.floor(priceInCents * (coupon.amount / 100))
+      : Math.round(coupon.amount * 100);
+
+  const discountedCents = Math.max(priceInCents - discountCents, 0);
+  return { discountCents, discountedCents };
+};
+
+const validateCouponForPlan = async (code: string, planPriceCents: number) => {
+  const normalized = normalizeCouponCode(code);
+  if (!normalized) {
+    throw new Error("Coupon code is required");
+  }
+
+  const coupon = await MembershipCoupon.findOne({ code: normalized });
+  if (!coupon) {
+    throw new Error("Invalid coupon code");
+  }
+  if (!coupon.isActive) {
+    throw new Error("Coupon is not active");
+  }
+
+  const now = new Date();
+  if (coupon.startDate && now < coupon.startDate) {
+    throw new Error("Coupon is not yet active");
+  }
+  if (coupon.endDate && now > coupon.endDate) {
+    throw new Error("Coupon has expired");
+  }
+  if (coupon.maxRedemptions && coupon.usedCount >= coupon.maxRedemptions) {
+    throw new Error("Coupon redemption limit reached");
+  }
+
+  const { discountCents, discountedCents } = calculateDiscountedAmount(planPriceCents, coupon);
+  if (discountedCents < 50) {
+    throw new Error("Discounted amount must be at least $0.50");
+  }
+
+  return {
+    coupon,
+    discountCents,
+    discountedCents,
+    originalCents: planPriceCents,
+  };
+};
+
+type CouponMetadata = {
+  couponId?: string;
+  couponCode?: string;
+  couponDiscountType?: CouponDiscountType;
+  couponAmount?: number;
+  discountedAmount?: number;
+  originalAmount?: number;
+};
+
+const extractCouponMetadata = (metadata?: Stripe.Metadata | null): CouponMetadata | undefined => {
+  if (!metadata) return undefined;
+  const code = metadata.couponCode || metadata.coupon;
+  if (!code) return undefined;
+
+  const toNumber = (value?: string | null) => {
+    if (value === undefined || value === null) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  return {
+    couponId: metadata.couponId || metadata.couponID,
+    couponCode: String(code),
+    couponDiscountType: metadata.couponDiscountType as CouponDiscountType,
+    couponAmount: toNumber(metadata.couponAmount),
+    discountedAmount: toNumber(metadata.discountedAmount),
+    originalAmount: toNumber(metadata.originalAmount),
+  };
+};
 
 const formatDateDisplay = (value?: Date | string | null) => {
   if (!value) return "";
@@ -168,6 +249,7 @@ const activateMembership = async ({
   invoicePdf,
   amountPaid,
   currency,
+  coupon,
 }: {
   userId: string;
   planId: string;
@@ -181,6 +263,7 @@ const activateMembership = async ({
   invoicePdf?: string;
   amountPaid?: number;
   currency?: string;
+  coupon?: CouponMetadata;
 }) => {
   const membership = await ensureMembership(userId, planId);
   membership.status = "active";
@@ -192,7 +275,24 @@ const activateMembership = async ({
   membership.stripeCustomerId = stripeCustomerId;
   membership.stripeSubscriptionId = stripeSubscriptionId;
   membership.stripePriceId = stripePriceId;
+
+  const hadCouponAlready = Boolean(membership.couponCode);
+  if (coupon?.couponCode) {
+    membership.couponId = coupon.couponId as any;
+    membership.couponCode = coupon.couponCode;
+    membership.couponDiscountType = coupon.couponDiscountType;
+    membership.couponAmount = coupon.couponAmount;
+    membership.couponAppliedAt = membership.couponAppliedAt || new Date();
+  }
   await membership.save();
+
+  if (coupon?.couponCode && coupon.couponId && !hadCouponAlready) {
+    await MembershipCoupon.findOneAndUpdate(
+      { _id: coupon.couponId },
+      { $inc: { usedCount: 1 } },
+      { new: true }
+    );
+  }
 
   await setUserRoleForMembership(userId, true);
   await logEvent({
@@ -241,9 +341,68 @@ export const getMyMembership = async (req: any, res: Response) => {
   }
 };
 
+export const previewCheckout = async (req: any, res: Response) => {
+  try {
+    const { planId, couponCode } = req.body;
+    if (!planId) {
+      return res.status(400).json({ success: false, message: "planId is required" });
+    }
+
+    const plan = await MembershipPlan.findById(planId);
+    if (!plan || !plan.isActive) {
+      return res.status(404).json({ success: false, message: "Plan not found or inactive" });
+    }
+
+    const planPriceCents = Math.round(Number(plan.price) * 100);
+    if (!planPriceCents || Number.isNaN(planPriceCents) || planPriceCents <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid plan price" });
+    }
+
+    let discountedCents = planPriceCents;
+    let couponApplied: {
+      code: string;
+      discountType: CouponDiscountType;
+      amount: number;
+    } | undefined;
+
+    if (couponCode) {
+      try {
+        const validated = await validateCouponForPlan(couponCode, planPriceCents);
+        discountedCents = validated.discountedCents;
+        couponApplied = {
+          code: validated.coupon.code,
+          discountType: validated.coupon.discountType,
+          amount: validated.coupon.amount,
+        };
+      } catch (couponErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: couponErr?.message || "Invalid coupon",
+        });
+      }
+    }
+
+    const toDollars = (cents: number) => Number((cents / 100).toFixed(2));
+
+    return res.json({
+      success: true,
+      pricing: {
+        originalPrice: toDollars(planPriceCents),
+        discountedPrice: toDollars(discountedCents),
+        renewalPrice: toDollars(planPriceCents),
+        isFree: discountedCents === 0,
+        ...(couponApplied ? { coupon: couponApplied } : {}),
+      },
+    });
+  } catch (err: any) {
+    console.error("preview checkout error", err);
+    return res.status(500).json({ success: false, message: err.message || "Failed to preview checkout" });
+  }
+};
+
 export const createCheckoutSession = async (req: any, res: Response) => {
   try {
-    const { planId } = req.body;
+    const { planId, couponCode } = req.body;
     if (!planId) {
       return res.status(400).json({ success: false, message: "planId is required" });
     }
@@ -268,25 +427,82 @@ export const createCheckoutSession = async (req: any, res: Response) => {
       await plan.save();
     }
 
+    const planPriceCents = Math.round(Number(plan.price) * 100);
+    if (!planPriceCents || Number.isNaN(planPriceCents) || planPriceCents <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid plan price" });
+    }
+
+    let validatedCoupon:
+      | {
+          coupon: IMembershipCoupon;
+          discountCents: number;
+          discountedCents: number;
+          originalCents: number;
+        }
+      | undefined;
+
+    if (couponCode) {
+      try {
+        validatedCoupon = await validateCouponForPlan(couponCode, planPriceCents);
+      } catch (couponErr: any) {
+        return res.status(400).json({
+          success: false,
+          message: couponErr?.message || "Invalid coupon",
+        });
+      }
+    }
+
     const membership = await ensureMembership(req.user.id, planId);
     membership.plan = plan._id;
     await membership.save();
 
+    const baseMetadata: Record<string, any> = {
+      userId: req.user.id,
+      planId: plan._id.toString(),
+    };
+
+    const couponMetadata = validatedCoupon
+      ? {
+          couponId: validatedCoupon.coupon._id.toString(),
+          couponCode: validatedCoupon.coupon.code,
+          couponDiscountType: validatedCoupon.coupon.discountType,
+          couponAmount: validatedCoupon.coupon.amount.toString(),
+          originalAmount: validatedCoupon.originalCents.toString(),
+          discountedAmount: validatedCoupon.discountedCents.toString(),
+        }
+      : undefined;
+
+    const lineItem = validatedCoupon
+      ? {
+          price_data: {
+            currency: "usd",
+            unit_amount: validatedCoupon.discountedCents,
+            recurring: { interval: plan.interval === "year" ? "year" : "month" },
+            product: stripeProductId,
+          },
+          quantity: 1,
+        }
+      : { price: stripePriceId, quantity: 1 };
+
     const params: any = {
       mode: "subscription",
-      line_items: [{ price: stripePriceId, quantity: 1 }],
+      line_items: [lineItem],
       success_url: buildSuccessUrl(planId),
       cancel_url: buildCancelUrl(),
-      metadata: {
-        userId: req.user.id,
-        planId: plan._id.toString(),
-      },
+      metadata: { ...baseMetadata, ...(couponMetadata || {}) },
     };
 
     if (membership.stripeCustomerId) {
       params.customer = membership.stripeCustomerId;
     } else if (req.user.email) {
       params.customer_email = req.user.email;
+    }
+
+    if (couponMetadata) {
+      params.subscription_data = {
+        ...(params.subscription_data || {}),
+        metadata: { ...(params.subscription_data?.metadata || {}), ...baseMetadata, ...couponMetadata },
+      };
     }
 
     const session = await stripe().checkout.sessions.create(params);
@@ -708,6 +924,7 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
           const subscription = await stripe().subscriptions.retrieve(subscriptionId);
           const invoiceDetails = await getInvoiceDetails(session.invoice);
           const metadata = session.metadata || {};
+          const couponMetadata = extractCouponMetadata(session.metadata);
           await activateMembership({
             userId: metadata.userId,
             planId: metadata.planId,
@@ -721,6 +938,7 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
             invoicePdf: invoiceDetails.invoicePdf,
             amountPaid: invoiceDetails.amountPaid,
             currency: invoiceDetails.currency,
+            coupon: couponMetadata,
           });
         }
         break;
@@ -734,6 +952,9 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
         if (subscriptionId) {
           const subscription = await stripe().subscriptions.retrieve(subscriptionId);
           const membership = await UserMembership.findOne({ stripeSubscriptionId: subscriptionId });
+          const couponMetadata =
+            extractCouponMetadata(invoice.metadata) ||
+            extractCouponMetadata(subscription.metadata as Stripe.Metadata);
           if (membership) {
             await activateMembership({
               userId: membership.user.toString(),
@@ -753,6 +974,7 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
                   ? invoice.amount_due
                   : undefined,
               currency: invoice.currency || undefined,
+              coupon: couponMetadata,
             });
           }
         }
