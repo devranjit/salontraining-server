@@ -19,7 +19,5 @@ export const adminOrManager = (req: Request, res: Response, next: NextFunction) 
       success: false,
       message: "Admin or Manager access only",
     });
-  }
-
-  next();
+  }  next();
 };

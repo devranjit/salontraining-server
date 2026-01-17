@@ -257,10 +257,10 @@ export const createEvent = async (req: any, res: Response) => {
     const ticketPrice = body.ticketPrice;
     const capacity = body.capacity;
 
-    if (!title || !description || !email || !startDate) {
+    if (!title || !description || !startDate) {
       return res.status(400).json({
         success: false,
-        message: "Title, description, email, and start date are required",
+        message: "Title, description, and start date are required",
       });
     }
 
