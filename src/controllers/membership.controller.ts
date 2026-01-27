@@ -47,9 +47,16 @@ const setUserRoleForMembership = async (userId: string, active: boolean) => {
 const logEvent = (payload: {
   user?: string;
   plan?: string;
+  membership?: string;
   type: MembershipLogType;
   message: string;
   data?: Record<string, any>;
+  createdBy?: string;
+  stripeEventId?: string;
+  stripePaymentIntentId?: string;
+  stripeInvoiceId?: string;
+  amount?: number;
+  currency?: string;
 }) => MembershipLog.create(payload);
 
 const normalizeCouponCode = (code?: string) => code?.trim().toUpperCase();
@@ -236,6 +243,22 @@ const getInvoiceDetails = async (invoiceInput: string | Stripe.Invoice | null | 
   }
 };
 
+// Extended payment details for tracking
+interface PaymentDetails {
+  stripePaymentIntentId?: string;
+  stripeInvoiceId?: string;
+  invoiceUrl?: string;
+  invoicePdf?: string;
+  invoiceNumber?: string;
+  amountPaid?: number; // in cents
+  originalAmount?: number; // in cents
+  currency?: string;
+  paymentMethodType?: string;
+  paymentMethodLast4?: string;
+  paymentMethodBrand?: string;
+  stripeEventId?: string;
+}
+
 const activateMembership = async ({
   userId,
   planId,
@@ -250,6 +273,7 @@ const activateMembership = async ({
   amountPaid,
   currency,
   coupon,
+  paymentDetails,
 }: {
   userId: string;
   planId: string;
@@ -264,6 +288,7 @@ const activateMembership = async ({
   amountPaid?: number;
   currency?: string;
   coupon?: CouponMetadata;
+  paymentDetails?: PaymentDetails;
 }) => {
   const membership = await ensureMembership(userId, planId);
   membership.status = "active";
@@ -276,6 +301,49 @@ const activateMembership = async ({
   membership.stripeSubscriptionId = stripeSubscriptionId;
   membership.stripePriceId = stripePriceId;
 
+  // Payment tracking
+  membership.paymentStatus = "success";
+  membership.lastPaymentDate = new Date();
+  membership.lastPaymentAmount = amountPaid || paymentDetails?.amountPaid;
+  membership.currency = currency || paymentDetails?.currency;
+  
+  // Clear any previous failure info
+  membership.failureReason = undefined;
+  membership.failureCode = undefined;
+  membership.failureCount = 0;
+  
+  // Payment method details
+  if (paymentDetails) {
+    if (paymentDetails.stripePaymentIntentId) {
+      membership.stripePaymentIntentId = paymentDetails.stripePaymentIntentId;
+    }
+    if (paymentDetails.stripeInvoiceId) {
+      membership.stripeInvoiceId = paymentDetails.stripeInvoiceId;
+    }
+    if (paymentDetails.invoiceUrl) {
+      membership.invoiceUrl = paymentDetails.invoiceUrl;
+    }
+    if (paymentDetails.invoicePdf) {
+      membership.invoicePdf = paymentDetails.invoicePdf;
+    }
+    if (paymentDetails.invoiceNumber) {
+      membership.invoiceNumber = paymentDetails.invoiceNumber;
+    }
+    if (paymentDetails.paymentMethodType) {
+      membership.paymentMethodType = paymentDetails.paymentMethodType;
+    }
+    if (paymentDetails.paymentMethodLast4) {
+      membership.paymentMethodLast4 = paymentDetails.paymentMethodLast4;
+    }
+    if (paymentDetails.paymentMethodBrand) {
+      membership.paymentMethodBrand = paymentDetails.paymentMethodBrand;
+    }
+    if (paymentDetails.originalAmount) {
+      membership.originalPrice = paymentDetails.originalAmount;
+    }
+  }
+
+  // Coupon / Discount tracking
   const hadCouponAlready = Boolean(membership.couponCode);
   if (coupon?.couponCode) {
     membership.couponId = coupon.couponId as any;
@@ -283,7 +351,22 @@ const activateMembership = async ({
     membership.couponDiscountType = coupon.couponDiscountType;
     membership.couponAmount = coupon.couponAmount;
     membership.couponAppliedAt = membership.couponAppliedAt || new Date();
+    
+    // Calculate discount amounts
+    if (coupon.originalAmount && coupon.discountedAmount) {
+      membership.originalPrice = coupon.originalAmount;
+      membership.finalPrice = coupon.discountedAmount;
+      membership.discountAmount = coupon.originalAmount - coupon.discountedAmount;
+    }
+  } else {
+    // No coupon - final price equals original
+    if (amountPaid) {
+      membership.originalPrice = amountPaid;
+      membership.finalPrice = amountPaid;
+      membership.discountAmount = 0;
+    }
   }
+  
   await membership.save();
 
   if (coupon?.couponCode && coupon.couponId && !hadCouponAlready) {
@@ -292,24 +375,50 @@ const activateMembership = async ({
       { $inc: { usedCount: 1 } },
       { new: true }
     );
+    
+    // Log coupon applied
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "coupon_applied",
+      message: `Coupon ${coupon.couponCode} applied`,
+      data: {
+        couponCode: coupon.couponCode,
+        discountType: coupon.couponDiscountType,
+        amount: coupon.couponAmount,
+        originalAmount: coupon.originalAmount,
+        discountedAmount: coupon.discountedAmount,
+      },
+    });
   }
 
   await setUserRoleForMembership(userId, true);
+  
+  // Log payment success
   await logEvent({
     user: membership.user as any,
     plan: membership.plan as any,
-    type: "renewal",
-    message: "Membership activated or renewed",
+    type: "payment_success",
+    message: "Payment successful - membership activated",
     data: {
       expiry: periodEnd,
       subscriptionId: stripeSubscriptionId,
+      amount: amountPaid,
+      currency,
+      paymentIntentId: paymentDetails?.stripePaymentIntentId,
+      invoiceId: paymentDetails?.stripeInvoiceId,
     },
+    stripeEventId: paymentDetails?.stripeEventId,
+    stripePaymentIntentId: paymentDetails?.stripePaymentIntentId,
+    stripeInvoiceId: paymentDetails?.stripeInvoiceId,
+    amount: amountPaid,
+    currency,
   });
 
   await sendMembershipActivationEmail({
     membershipId: membership._id.toString(),
-    invoiceUrl,
-    invoicePdf,
+    invoiceUrl: invoiceUrl || paymentDetails?.invoiceUrl,
+    invoicePdf: invoicePdf || paymentDetails?.invoicePdf,
     amountPaid,
     currency,
   });
@@ -327,6 +436,130 @@ const expireMembership = async (membership: any, reason = "expired") => {
     type: reason === "canceled" ? "cancellation" : "expiry",
     message: `Membership ${reason}`,
   });
+};
+
+// Handle payment failures
+const handlePaymentFailure = async ({
+  membership,
+  failureReason,
+  failureCode,
+  stripeEventId,
+  stripePaymentIntentId,
+  stripeInvoiceId,
+}: {
+  membership: any;
+  failureReason?: string;
+  failureCode?: string;
+  stripeEventId?: string;
+  stripePaymentIntentId?: string;
+  stripeInvoiceId?: string;
+}) => {
+  membership.paymentStatus = "failed";
+  membership.failureReason = failureReason || "Payment failed";
+  membership.failureCode = failureCode;
+  membership.lastFailedAt = new Date();
+  membership.failureCount = (membership.failureCount || 0) + 1;
+  
+  // After 3 failures, mark as past_due
+  if (membership.failureCount >= 3) {
+    membership.status = "past_due";
+    await setUserRoleForMembership(membership.user.toString(), false);
+  }
+  
+  await membership.save();
+  
+  await logEvent({
+    user: membership.user as any,
+    plan: membership.plan as any,
+    type: "payment_failed",
+    message: `Payment failed: ${failureReason || "Unknown reason"}`,
+    data: {
+      failureCode,
+      failureCount: membership.failureCount,
+      newStatus: membership.status,
+    },
+    stripeEventId,
+    stripePaymentIntentId,
+    stripeInvoiceId,
+  });
+};
+
+// Extract payment method details from Stripe
+const extractPaymentMethodDetails = async (paymentMethodId?: string | null) => {
+  if (!paymentMethodId) return {};
+  
+  try {
+    const paymentMethod = await stripe().paymentMethods.retrieve(paymentMethodId);
+    
+    const details: {
+      paymentMethodType?: string;
+      paymentMethodLast4?: string;
+      paymentMethodBrand?: string;
+    } = {
+      paymentMethodType: paymentMethod.type,
+    };
+    
+    if (paymentMethod.card) {
+      details.paymentMethodLast4 = paymentMethod.card.last4;
+      details.paymentMethodBrand = paymentMethod.card.brand;
+    } else if ((paymentMethod as any).us_bank_account) {
+      details.paymentMethodLast4 = (paymentMethod as any).us_bank_account.last4;
+      details.paymentMethodBrand = (paymentMethod as any).us_bank_account.bank_name;
+    }
+    
+    return details;
+  } catch (err) {
+    console.warn("Could not retrieve payment method details:", err);
+    return {};
+  }
+};
+
+// Get extended invoice details including payment method
+const getExtendedInvoiceDetails = async (invoiceInput: string | Stripe.Invoice | null | undefined) => {
+  if (!invoiceInput) return {};
+  
+  try {
+    const invoice =
+      typeof invoiceInput === "string"
+        ? await stripe().invoices.retrieve(invoiceInput, { expand: ["payment_intent"] })
+        : invoiceInput;
+
+    const details: PaymentDetails = {
+      stripeInvoiceId: invoice.id,
+      invoiceUrl: invoice.hosted_invoice_url || undefined,
+      invoicePdf: invoice.invoice_pdf || undefined,
+      invoiceNumber: invoice.number || undefined,
+      amountPaid:
+        typeof invoice.amount_paid === "number"
+          ? invoice.amount_paid
+          : typeof invoice.amount_due === "number"
+          ? invoice.amount_due
+          : undefined,
+      currency: invoice.currency || undefined,
+    };
+    
+    // Get payment intent details
+    const paymentIntent = invoice.payment_intent;
+    if (paymentIntent) {
+      const pi = typeof paymentIntent === "string" 
+        ? await stripe().paymentIntents.retrieve(paymentIntent)
+        : paymentIntent;
+      
+      details.stripePaymentIntentId = pi.id;
+      
+      // Get payment method details
+      if (pi.payment_method) {
+        const pmId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method.id;
+        const pmDetails = await extractPaymentMethodDetails(pmId);
+        Object.assign(details, pmDetails);
+      }
+    }
+    
+    return details;
+  } catch (err) {
+    console.warn("Unable to retrieve extended invoice details:", err);
+    return {};
+  }
 };
 
 export const getMyMembership = async (req: any, res: Response) => {
@@ -911,6 +1144,7 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
   }
 
   const object = event.data.object;
+  console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`);
 
   try {
     switch (event.type) {
@@ -922,9 +1156,12 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
               ? session.subscription
               : session.subscription.id;
           const subscription = await stripe().subscriptions.retrieve(subscriptionId);
-          const invoiceDetails = await getInvoiceDetails(session.invoice);
+          const paymentDetails = await getExtendedInvoiceDetails(session.invoice);
+          paymentDetails.stripeEventId = event.id;
+          
           const metadata = session.metadata || {};
           const couponMetadata = extractCouponMetadata(session.metadata);
+          
           await activateMembership({
             userId: metadata.userId,
             planId: metadata.planId,
@@ -934,15 +1171,17 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
             periodStart: new Date(subscription.current_period_start * 1000),
             periodEnd: new Date(subscription.current_period_end * 1000),
             autoRenew: !subscription.cancel_at_period_end,
-            invoiceUrl: invoiceDetails.invoiceUrl,
-            invoicePdf: invoiceDetails.invoicePdf,
-            amountPaid: invoiceDetails.amountPaid,
-            currency: invoiceDetails.currency,
+            invoiceUrl: paymentDetails.invoiceUrl,
+            invoicePdf: paymentDetails.invoicePdf,
+            amountPaid: paymentDetails.amountPaid,
+            currency: paymentDetails.currency,
             coupon: couponMetadata,
+            paymentDetails,
           });
         }
         break;
       }
+      
       case "invoice.payment_succeeded": {
         const invoice = object as Stripe.Invoice;
         const subscriptionId =
@@ -955,6 +1194,10 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
           const couponMetadata =
             extractCouponMetadata(invoice.metadata) ||
             extractCouponMetadata(subscription.metadata as Stripe.Metadata);
+          
+          const paymentDetails = await getExtendedInvoiceDetails(invoice);
+          paymentDetails.stripeEventId = event.id;
+          
           if (membership) {
             await activateMembership({
               userId: membership.user.toString(),
@@ -965,31 +1208,160 @@ export const handleStripeWebhook = async (req: any, res: Response) => {
               periodStart: new Date(subscription.current_period_start * 1000),
               periodEnd: new Date(subscription.current_period_end * 1000),
               autoRenew: !subscription.cancel_at_period_end,
-              invoiceUrl: invoice.hosted_invoice_url || undefined,
-              invoicePdf: invoice.invoice_pdf || undefined,
-              amountPaid:
-                typeof invoice.amount_paid === "number"
-                  ? invoice.amount_paid
-                  : typeof invoice.amount_due === "number"
-                  ? invoice.amount_due
-                  : undefined,
-              currency: invoice.currency || undefined,
+              invoiceUrl: paymentDetails.invoiceUrl,
+              invoicePdf: paymentDetails.invoicePdf,
+              amountPaid: paymentDetails.amountPaid,
+              currency: paymentDetails.currency,
               coupon: couponMetadata,
+              paymentDetails,
             });
           }
         }
         break;
       }
+      
+      case "invoice.payment_failed": {
+        const invoice = object as Stripe.Invoice;
+        const subscriptionId =
+          typeof invoice.subscription === "string"
+            ? invoice.subscription
+            : invoice.subscription?.id;
+        
+        if (subscriptionId) {
+          const membership = await UserMembership.findOne({ stripeSubscriptionId: subscriptionId });
+          if (membership) {
+            // Extract failure reason from the invoice
+            const lastError = invoice.last_finalization_error;
+            const failureReason = lastError?.message || 
+              (invoice as any).payment_intent?.last_payment_error?.message ||
+              "Payment was declined";
+            const failureCode = lastError?.code || 
+              (invoice as any).payment_intent?.last_payment_error?.code;
+            
+            await handlePaymentFailure({
+              membership,
+              failureReason,
+              failureCode,
+              stripeEventId: event.id,
+              stripeInvoiceId: invoice.id,
+              stripePaymentIntentId: typeof invoice.payment_intent === "string" 
+                ? invoice.payment_intent 
+                : invoice.payment_intent?.id,
+            });
+            
+            console.log(`[Stripe Webhook] Payment failed for subscription ${subscriptionId}: ${failureReason}`);
+          }
+        }
+        break;
+      }
+      
+      case "customer.subscription.updated": {
+        const subscription = object as Stripe.Subscription;
+        const membership = await UserMembership.findOne({ stripeSubscriptionId: subscription.id });
+        
+        if (membership) {
+          // Update membership based on subscription status
+          const stripeStatus = subscription.status;
+          
+          if (stripeStatus === "past_due") {
+            membership.status = "past_due";
+            membership.paymentStatus = "failed";
+            await membership.save();
+            await setUserRoleForMembership(membership.user.toString(), false);
+            
+            await logEvent({
+              user: membership.user as any,
+              plan: membership.plan as any,
+              type: "status_change",
+              message: "Subscription marked as past due",
+              data: { stripeStatus },
+              stripeEventId: event.id,
+            });
+          } else if (stripeStatus === "active" && membership.status !== "active") {
+            // Subscription recovered
+            membership.status = "active";
+            membership.paymentStatus = "success";
+            membership.failureCount = 0;
+            membership.failureReason = undefined;
+            membership.failureCode = undefined;
+            await membership.save();
+            await setUserRoleForMembership(membership.user.toString(), true);
+            
+            await logEvent({
+              user: membership.user as any,
+              plan: membership.plan as any,
+              type: "status_change",
+              message: "Subscription recovered and activated",
+              data: { stripeStatus },
+              stripeEventId: event.id,
+            });
+          }
+          
+          // Update period end if changed
+          if (subscription.current_period_end) {
+            membership.expiryDate = new Date(subscription.current_period_end * 1000);
+            membership.nextBillingDate = new Date(subscription.current_period_end * 1000);
+            membership.cancelAtPeriodEnd = subscription.cancel_at_period_end;
+            membership.autoRenew = !subscription.cancel_at_period_end;
+            await membership.save();
+          }
+        }
+        break;
+      }
+      
       case "customer.subscription.deleted": {
         const subscription = object as Stripe.Subscription;
         const subscriptionId = subscription.id;
         const membership = await UserMembership.findOne({ stripeSubscriptionId: subscriptionId });
         if (membership) {
           await expireMembership(membership, "canceled");
+          
+          await logEvent({
+            user: membership.user as any,
+            plan: membership.plan as any,
+            type: "cancellation",
+            message: "Subscription canceled in Stripe",
+            stripeEventId: event.id,
+          });
         }
         break;
       }
+      
+      case "charge.refunded": {
+        const charge = object as Stripe.Charge;
+        // Find membership by payment intent
+        const paymentIntentId = typeof charge.payment_intent === "string" 
+          ? charge.payment_intent 
+          : charge.payment_intent?.id;
+        
+        if (paymentIntentId) {
+          const membership = await UserMembership.findOne({ stripePaymentIntentId: paymentIntentId });
+          if (membership) {
+            membership.paymentStatus = "refunded";
+            await membership.save();
+            
+            await logEvent({
+              user: membership.user as any,
+              plan: membership.plan as any,
+              type: "payment_refunded",
+              message: `Payment refunded: $${(charge.amount_refunded / 100).toFixed(2)}`,
+              data: {
+                amountRefunded: charge.amount_refunded,
+                refundReason: charge.refunds?.data?.[0]?.reason,
+              },
+              stripeEventId: event.id,
+              stripePaymentIntentId: paymentIntentId,
+              amount: charge.amount_refunded,
+              currency: charge.currency,
+            });
+          }
+        }
+        break;
+      }
+      
       default:
+        // Log unhandled events for debugging
+        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
         break;
     }
   } catch (err) {
@@ -1014,6 +1386,419 @@ export const getStripeConfig = (_req: Request, res: Response) => {
     success: true,
     publishableKey,
   });
+};
+
+// ============================================
+// ADMIN: Get detailed member info with payment data
+// ============================================
+export const adminGetMemberDetails = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const membership = await UserMembership.findById(id)
+      .populate("user", "name email role phone createdAt")
+      .populate("plan")
+      .populate("couponId")
+      .populate("archivedBy", "name email");
+    
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    // Get Stripe subscription details if available
+    let stripeSubscription = null;
+    let stripeCustomer = null;
+    let upcomingInvoice = null;
+    
+    if (membership.stripeSubscriptionId) {
+      try {
+        stripeSubscription = await stripe().subscriptions.retrieve(membership.stripeSubscriptionId, {
+          expand: ["default_payment_method", "latest_invoice"],
+        });
+        
+        // Get upcoming invoice for next billing info
+        try {
+          upcomingInvoice = await stripe().invoices.retrieveUpcoming({
+            subscription: membership.stripeSubscriptionId,
+          });
+        } catch {
+          // No upcoming invoice (subscription may be canceled)
+        }
+      } catch (err) {
+        console.warn("Could not retrieve Stripe subscription:", err);
+      }
+    }
+    
+    if (membership.stripeCustomerId) {
+      try {
+        stripeCustomer = await stripe().customers.retrieve(membership.stripeCustomerId);
+      } catch (err) {
+        console.warn("Could not retrieve Stripe customer:", err);
+      }
+    }
+    
+    return res.json({
+      success: true,
+      membership,
+      stripe: {
+        subscription: stripeSubscription ? {
+          id: stripeSubscription.id,
+          status: stripeSubscription.status,
+          cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
+          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          defaultPaymentMethod: stripeSubscription.default_payment_method,
+        } : null,
+        customer: stripeCustomer && !("deleted" in stripeCustomer) ? {
+          id: stripeCustomer.id,
+          email: stripeCustomer.email,
+          name: stripeCustomer.name,
+          created: new Date(stripeCustomer.created * 1000),
+        } : null,
+        upcomingInvoice: upcomingInvoice ? {
+          amountDue: upcomingInvoice.amount_due,
+          currency: upcomingInvoice.currency,
+          dueDate: upcomingInvoice.due_date ? new Date(upcomingInvoice.due_date * 1000) : null,
+        } : null,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Get membership timeline / audit log
+// ============================================
+export const adminGetMemberTimeline = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { limit = 50 } = req.query;
+    
+    const membership = await UserMembership.findById(id);
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    // Get logs for this user
+    const logs = await MembershipLog.find({
+      $or: [
+        { user: membership.user },
+        { membership: membership._id },
+      ],
+    })
+      .populate("createdBy", "name email")
+      .sort({ createdAt: -1 })
+      .limit(Number(limit));
+    
+    return res.json({
+      success: true,
+      timeline: logs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Resend invoice email
+// ============================================
+export const adminResendInvoice = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user?._id || req.user?.id;
+    
+    const membership = await UserMembership.findById(id)
+      .populate("user", "name email")
+      .populate("plan");
+    
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    if (!membership.stripeInvoiceId) {
+      return res.status(400).json({ success: false, message: "No invoice found for this membership" });
+    }
+    
+    // Send invoice via Stripe
+    try {
+      await stripe().invoices.sendInvoice(membership.stripeInvoiceId);
+    } catch (stripeErr: any) {
+      // If Stripe fails, try to send via our email system
+      if (membership.invoiceUrl) {
+        const userDoc: any = membership.user;
+        await dispatchEmailEvent("membership.invoice", {
+          to: userDoc.email,
+          data: {
+            user: userDoc,
+            plan: membership.plan,
+            membership: {
+              invoiceUrl: membership.invoiceUrl,
+              invoicePdf: membership.invoicePdf,
+            },
+          },
+        });
+      } else {
+        return res.status(400).json({ success: false, message: `Unable to send invoice: ${stripeErr.message}` });
+      }
+    }
+    
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "invoice_sent",
+      message: "Invoice resent by admin",
+      createdBy: adminId,
+    });
+    
+    return res.json({ success: true, message: "Invoice sent successfully" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Send payment failed notice
+// ============================================
+export const adminSendPaymentFailedNotice = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user?._id || req.user?.id;
+    
+    const membership = await UserMembership.findById(id)
+      .populate("user", "name email")
+      .populate("plan");
+    
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    const userDoc: any = membership.user;
+    const planDoc: any = membership.plan;
+    
+    // Create a new payment link if possible
+    let paymentLink = null;
+    if (membership.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe().subscriptions.retrieve(membership.stripeSubscriptionId);
+        if (subscription.latest_invoice) {
+          const invoice = await stripe().invoices.retrieve(
+            typeof subscription.latest_invoice === "string" 
+              ? subscription.latest_invoice 
+              : subscription.latest_invoice.id
+          );
+          paymentLink = invoice.hosted_invoice_url;
+        }
+      } catch {
+        // Could not get payment link
+      }
+    }
+    
+    await dispatchEmailEvent("membership.payment_failed", {
+      to: userDoc.email,
+      data: {
+        user: userDoc,
+        plan: planDoc,
+        membership: {
+          failureReason: membership.failureReason || "Your payment could not be processed",
+          paymentLink,
+        },
+      },
+    });
+    
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "email_sent",
+      message: "Payment failed notice sent by admin",
+      createdBy: adminId,
+    });
+    
+    return res.json({ success: true, message: "Payment failed notice sent" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Generate new payment link
+// ============================================
+export const adminGeneratePaymentLink = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const adminId = req.user?._id || req.user?.id;
+    
+    const membership = await UserMembership.findById(id)
+      .populate("user", "name email")
+      .populate("plan");
+    
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    let paymentLink = null;
+    
+    // Try to get payment link from latest invoice
+    if (membership.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe().subscriptions.retrieve(membership.stripeSubscriptionId);
+        if (subscription.latest_invoice) {
+          const invoiceId = typeof subscription.latest_invoice === "string" 
+            ? subscription.latest_invoice 
+            : subscription.latest_invoice.id;
+          
+          // Try to finalize and get hosted URL
+          const invoice = await stripe().invoices.retrieve(invoiceId);
+          if (invoice.status === "draft") {
+            const finalized = await stripe().invoices.finalizeInvoice(invoiceId);
+            paymentLink = finalized.hosted_invoice_url;
+          } else {
+            paymentLink = invoice.hosted_invoice_url;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Could not get invoice payment link:", err.message);
+      }
+    }
+    
+    if (!paymentLink) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Unable to generate payment link. The subscription may not have a pending invoice." 
+      });
+    }
+    
+    await logEvent({
+      user: membership.user as any,
+      plan: membership.plan as any,
+      type: "admin_action",
+      message: "Payment link generated by admin",
+      data: { paymentLink },
+      createdBy: adminId,
+    });
+    
+    return res.json({ success: true, paymentLink });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Get invoices for a membership
+// ============================================
+export const adminGetMemberInvoices = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { limit = 10 } = req.query;
+    
+    const membership = await UserMembership.findById(id);
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    if (!membership.stripeCustomerId) {
+      return res.json({ success: true, invoices: [] });
+    }
+    
+    const invoices = await stripe().invoices.list({
+      customer: membership.stripeCustomerId,
+      limit: Number(limit),
+    });
+    
+    const formattedInvoices = invoices.data.map(inv => ({
+      id: inv.id,
+      number: inv.number,
+      status: inv.status,
+      amountDue: inv.amount_due,
+      amountPaid: inv.amount_paid,
+      currency: inv.currency,
+      created: new Date(inv.created * 1000),
+      dueDate: inv.due_date ? new Date(inv.due_date * 1000) : null,
+      paidAt: inv.status_transitions?.paid_at 
+        ? new Date(inv.status_transitions.paid_at * 1000) 
+        : null,
+      hostedInvoiceUrl: inv.hosted_invoice_url,
+      invoicePdf: inv.invoice_pdf,
+      periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
+      periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
+    }));
+    
+    return res.json({ success: true, invoices: formattedInvoices });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ============================================
+// ADMIN: Manually refresh payment info from Stripe
+// ============================================
+export const adminRefreshPaymentInfo = async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const membership = await UserMembership.findById(id);
+    if (!membership) {
+      return res.status(404).json({ success: false, message: "Membership not found" });
+    }
+    
+    if (!membership.stripeSubscriptionId) {
+      return res.status(400).json({ success: false, message: "No Stripe subscription linked" });
+    }
+    
+    // Fetch latest subscription info
+    const subscription = await stripe().subscriptions.retrieve(membership.stripeSubscriptionId, {
+      expand: ["default_payment_method", "latest_invoice.payment_intent"],
+    });
+    
+    // Update membership with latest info
+    membership.status = subscription.status === "active" ? "active" 
+      : subscription.status === "past_due" ? "past_due"
+      : subscription.status === "canceled" ? "canceled"
+      : membership.status;
+    
+    membership.cancelAtPeriodEnd = subscription.cancel_at_period_end;
+    membership.autoRenew = !subscription.cancel_at_period_end;
+    membership.expiryDate = new Date(subscription.current_period_end * 1000);
+    membership.nextBillingDate = new Date(subscription.current_period_end * 1000);
+    
+    // Get payment method details
+    if (subscription.default_payment_method) {
+      const pm = subscription.default_payment_method as Stripe.PaymentMethod;
+      membership.paymentMethodType = pm.type;
+      if (pm.card) {
+        membership.paymentMethodLast4 = pm.card.last4;
+        membership.paymentMethodBrand = pm.card.brand;
+      }
+    }
+    
+    // Get latest invoice info
+    if (subscription.latest_invoice) {
+      const invoice = subscription.latest_invoice as Stripe.Invoice;
+      membership.stripeInvoiceId = invoice.id;
+      membership.invoiceUrl = invoice.hosted_invoice_url || undefined;
+      membership.invoicePdf = invoice.invoice_pdf || undefined;
+      membership.invoiceNumber = invoice.number || undefined;
+      membership.lastPaymentAmount = invoice.amount_paid;
+      membership.currency = invoice.currency;
+      
+      if (invoice.status === "paid") {
+        membership.paymentStatus = "success";
+        membership.lastPaymentDate = invoice.status_transitions?.paid_at 
+          ? new Date(invoice.status_transitions.paid_at * 1000) 
+          : new Date();
+      }
+    }
+    
+    await membership.save();
+    
+    const populated = await UserMembership.findById(membership._id)
+      .populate("user", "name email role")
+      .populate("plan");
+    
+    return res.json({ success: true, membership: populated, message: "Payment info refreshed from Stripe" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
 };
 
 

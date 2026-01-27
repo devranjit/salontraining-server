@@ -32,7 +32,9 @@ export type EmailEventKey =
   | "job.submitted"
   | "job.approved"
   | "job.rejected"
-  | "membership.activated";
+  | "membership.activated"
+  | "membership.invoice"
+  | "membership.payment_failed";
 
 export type EmailEventConfig = {
   key: EmailEventKey;
@@ -1213,6 +1215,100 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
             <p style="margin:0 0 8px;font-size:14px;color:#475569;">Thank you for shopping with SalonTraining!</p>
             <p style="margin:0;font-size:13px;color:#94a3b8;">Questions? Reply to this email or contact support@salontraining.com</p>
           </td></tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "membership.invoice",
+    label: "Membership Invoice",
+    description: "Sent when admin resends an invoice to a member.",
+    defaultSubject: "Your SalonTraining Membership Invoice",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <p style="margin:0 0 4px;font-size:20px;font-weight:700;color:#d57a2c;">SalonTraining</p>
+              <h1 style="margin:8px 0 0;font-size:26px;font-weight:700;color:#ffffff;">Your Invoice</h1>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;">
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 20px;font-size:15px;color:#475569;">Hi {{user.name}},</p>
+              <p style="margin:0 0 20px;font-size:15px;color:#475569;">Here is your membership invoice for <strong>{{plan.name}}</strong>.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+                <tr>
+                  <td style="text-align:center;">
+                    <a href="{{membership.invoiceUrl}}" style="display:inline-block;background:#d57a2c;color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:bold;font-size:15px;">View Invoice</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:20px 0 0;font-size:13px;color:#64748b;text-align:center;">
+                <a href="{{membership.invoicePdf}}" style="color:#d57a2c;">Download PDF</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:20px 28px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#94a3b8;">© SalonTraining. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `,
+  },
+  {
+    key: "membership.payment_failed",
+    label: "Payment Failed Notice",
+    description: "Sent when a membership payment fails and admin sends a notice.",
+    defaultSubject: "Action Required: Your SalonTraining payment failed",
+    defaultHtml: `
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#dc2626 0%,#ef4444 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px;">
+              <p style="margin:0 0 4px;font-size:20px;font-weight:700;color:#fecaca;">SalonTraining</p>
+              <h1 style="margin:8px 0 0;font-size:26px;font-weight:700;color:#ffffff;">Payment Failed</h1>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;">
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 20px;font-size:15px;color:#475569;">Hi {{user.name}},</p>
+              <p style="margin:0 0 20px;font-size:15px;color:#475569;">We were unable to process your membership payment for <strong>{{plan.name}}</strong>.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fef2f2;border-radius:12px;border:1px solid #fecaca;margin:20px 0;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0;font-size:14px;color:#dc2626;font-weight:600;">Reason: {{membership.failureReason}}</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 20px;font-size:15px;color:#475569;">Please update your payment method to maintain access to your membership benefits.</p>
+              {{#if membership.paymentLink}}
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+                <tr>
+                  <td style="text-align:center;">
+                    <a href="{{membership.paymentLink}}" style="display:inline-block;background:#d57a2c;color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:bold;font-size:15px;">Update Payment</a>
+                  </td>
+                </tr>
+              </table>
+              {{/if}}
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:20px 28px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:14px;color:#475569;">Need help? Contact us at support@salontraining.com</p>
+              <p style="margin:0;font-size:12px;color:#94a3b8;">© SalonTraining. All rights reserved.</p>
+            </td>
+          </tr>
         </table>
       </div>
     `,

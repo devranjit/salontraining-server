@@ -26,6 +26,13 @@ import {
   adminArchiveMembership,
   adminRestoreMembership,
   adminCleanupOrphanedMemberships,
+  adminGetMemberDetails,
+  adminGetMemberTimeline,
+  adminResendInvoice,
+  adminSendPaymentFailedNotice,
+  adminGeneratePaymentLink,
+  adminGetMemberInvoices,
+  adminRefreshPaymentInfo,
   handleStripeWebhook,
   getStripeConfig,
 } from "../controllers/membership.controller";
@@ -66,6 +73,17 @@ router.post("/admin/users/:id/extend", protect, adminOnly, adminExtendMembership
 router.post("/admin/users/:id/archive", protect, adminOnly, adminArchiveMembership);
 router.post("/admin/users/:id/restore", protect, adminOnly, adminRestoreMembership);
 router.post("/admin/cleanup-orphaned", protect, adminOnly, adminCleanupOrphanedMemberships);
+
+// Admin member details & payment intelligence
+router.get("/admin/users/:id/details", protect, adminOnly, adminGetMemberDetails);
+router.get("/admin/users/:id/timeline", protect, adminOnly, adminGetMemberTimeline);
+router.get("/admin/users/:id/invoices", protect, adminOnly, adminGetMemberInvoices);
+router.post("/admin/users/:id/refresh-payment", protect, adminOnly, adminRefreshPaymentInfo);
+
+// Admin email & billing actions
+router.post("/admin/users/:id/resend-invoice", protect, adminOnly, adminResendInvoice);
+router.post("/admin/users/:id/send-payment-failed", protect, adminOnly, adminSendPaymentFailedNotice);
+router.post("/admin/users/:id/payment-link", protect, adminOnly, adminGeneratePaymentLink);
 
 // Stripe webhook (no auth)
 router.post("/stripe/webhook", handleStripeWebhook);

@@ -1,8 +1,20 @@
 import { Router } from "express";
-import { protect } from "../middleware/auth";
+import { protect, managerOrAdmin } from "../middleware/auth";
 import { adminOnly } from "../middleware/admin";
 import { User } from "../models/User";
 import { Listing } from "../models/Listing";
+import { TrainerListing } from "../models/TrainerListing";
+import { Event } from "../models/Event";
+import Product from "../models/Product";
+import { Education } from "../models/Education";
+import Job from "../models/Job";
+import { Blog } from "../models/Blog";
+import Review from "../models/Review";
+import { FormSubmission } from "../models/FormSubmission";
+import MemberVideo from "../models/MemberVideo";
+import UserMembership from "../models/UserMembership";
+import SeekingEmployment from "../models/SeekingEmployment";
+import ProVerification from "../models/ProVerification";
 import { dispatchEmailEvent } from "../services/emailService";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
@@ -20,6 +32,68 @@ const FRONTEND_BASE_URL = (
 router.get("/users", protect, adminOnly, async (req, res) => {
   const users = await User.find().sort({ createdAt: -1 });
   res.json({ success: true, users });
+});
+
+// ADMIN — Unified notification counts for sidebar badges
+router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
+  try {
+    const membershipActiveFilter = {
+      $or: [{ isArchived: { $exists: false } }, { isArchived: false }],
+    };
+
+    const [
+      trainers,
+      events,
+      products,
+      education,
+      jobs,
+      blogs,
+      reviews,
+      formSubmissions,
+      memberVideos,
+      memberships,
+      seekingEmployment,
+      proVerification,
+    ] = await Promise.all([
+      TrainerListing.countDocuments({ status: "pending" }),
+      Event.countDocuments({ status: "pending" }),
+      Product.countDocuments({ status: "pending" }),
+      Education.countDocuments({ status: "pending" }),
+      Job.countDocuments({ status: "pending" }),
+      Blog.countDocuments({ status: "pending" }),
+      Review.countDocuments({ status: { $in: ["pending", "changes_requested"] } }),
+      FormSubmission.countDocuments({ status: "new" }),
+      MemberVideo.countDocuments({ status: "draft" }),
+      UserMembership.countDocuments({
+        ...membershipActiveFilter,
+        status: { $in: ["pending", "past_due", "failed"] },
+      }),
+      SeekingEmployment.countDocuments({ status: "pending" }),
+      ProVerification.countDocuments({ status: "pending" }),
+    ]);
+
+    const counts = {
+      trainers,
+      events,
+      products,
+      education,
+      jobs,
+      blogs,
+      reviews,
+      formSubmissions,
+      memberVideos,
+      memberships,
+      seekingEmployment,
+      proVerification,
+    };
+
+    const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+
+    return res.json({ success: true, counts, total });
+  } catch (err: any) {
+    console.error("Admin notifications error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to load notifications" });
+  }
 });
 
 // ADMIN — Get ALL listings (with pagination, search, filters)
