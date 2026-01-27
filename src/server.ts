@@ -16,38 +16,70 @@ const execAsync = promisify(exec);
 const PORT = process.env.PORT || 5000;
 
 // -----------------------------------------
-// PORT CLEANUP UTILITY (Windows)
+// PORT CLEANUP UTILITY (Cross-platform: Windows & Linux)
 // -----------------------------------------
+const isWindows = process.platform === "win32";
+
 async function killProcessOnPort(port: number | string): Promise<boolean> {
   const portNum = typeof port === "string" ? parseInt(port, 10) : port;
   
   try {
-    // Windows: Find and kill process using the port
-    const { stdout } = await execAsync(
-      `netstat -ano | findstr :${portNum} | findstr LISTENING`
-    );
-    
-    const lines = stdout.trim().split("\n");
-    const pids = new Set<string>();
-    
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      const pid = parts[parts.length - 1];
-      if (pid && pid !== "0" && !isNaN(parseInt(pid, 10))) {
-        pids.add(pid);
+    if (isWindows) {
+      // Windows: Find and kill process using the port
+      const { stdout } = await execAsync(
+        `netstat -ano | findstr :${portNum} | findstr LISTENING`
+      );
+      
+      const lines = stdout.trim().split("\n");
+      const pids = new Set<string>();
+      
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== "0" && !isNaN(parseInt(pid, 10))) {
+          pids.add(pid);
+        }
       }
-    }
-    
-    if (pids.size === 0) {
-      return false;
-    }
-    
-    for (const pid of pids) {
+      
+      if (pids.size === 0) {
+        return false;
+      }
+      
+      for (const pid of pids) {
+        try {
+          await execAsync(`taskkill /F /PID ${pid}`);
+          console.log(`✓ Killed existing process (PID: ${pid}) on port ${portNum}`);
+        } catch {
+          // Process might have already terminated
+        }
+      }
+    } else {
+      // Linux/macOS: Use fuser or lsof to find and kill process
       try {
-        await execAsync(`taskkill /F /PID ${pid}`);
-        console.log(`✓ Killed existing process (PID: ${pid}) on port ${portNum}`);
+        // Try fuser first (more reliable on Linux)
+        await execAsync(`fuser -k ${portNum}/tcp 2>/dev/null || true`);
+        console.log(`✓ Killed process on port ${portNum} using fuser`);
       } catch {
-        // Process might have already terminated
+        // Fallback to lsof + kill
+        try {
+          const { stdout } = await execAsync(`lsof -t -i:${portNum} 2>/dev/null || true`);
+          const pids = stdout.trim().split("\n").filter(Boolean);
+          
+          if (pids.length === 0) {
+            return false;
+          }
+          
+          for (const pid of pids) {
+            try {
+              await execAsync(`kill -9 ${pid}`);
+              console.log(`✓ Killed existing process (PID: ${pid}) on port ${portNum}`);
+            } catch {
+              // Process might have already terminated
+            }
+          }
+        } catch {
+          return false;
+        }
       }
     }
     

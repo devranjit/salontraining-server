@@ -113,9 +113,8 @@ export const getMailClient = (): MailClient => {
     isVerified: false,
   };
 
-  verifyConnection().catch((err) => {
-    console.error("[MailClient] Connection verification failed:", err.message);
-  });
+  // Note: Don't auto-verify here - let server.ts call verifyConnection() explicitly
+  // This prevents double verification when verifyConnection() calls getMailClient()
 
   return cachedClient;
 };
