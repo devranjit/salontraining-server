@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
-import { exec } from "child_process";
-import { promisify } from "util";
+import http from "http";
 import { connectDB } from "./config/connectDB";
 import { ensureEmailDefaults } from "./services/emailService";
 import { verifyConnection as verifyMailConnection } from "./services/mailClient";
@@ -8,95 +7,16 @@ import { initializeFirebaseAdmin, isFirebaseConfigured } from "./services/fireba
 import { initBackupScheduler } from "./services/backupService";
 import app from "./app";
 
-const execAsync = promisify(exec);
-
 // -----------------------------------------
 // PORT CONFIGURATION
 // -----------------------------------------
 const PORT = process.env.PORT || 5000;
 
 // -----------------------------------------
-// PORT CLEANUP UTILITY (Cross-platform: Windows & Linux)
-// -----------------------------------------
-const isWindows = process.platform === "win32";
-
-async function killProcessOnPort(port: number | string): Promise<boolean> {
-  const portNum = typeof port === "string" ? parseInt(port, 10) : port;
-  
-  try {
-    if (isWindows) {
-      // Windows: Find and kill process using the port
-      const { stdout } = await execAsync(
-        `netstat -ano | findstr :${portNum} | findstr LISTENING`
-      );
-      
-      const lines = stdout.trim().split("\n");
-      const pids = new Set<string>();
-      
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        const pid = parts[parts.length - 1];
-        if (pid && pid !== "0" && !isNaN(parseInt(pid, 10))) {
-          pids.add(pid);
-        }
-      }
-      
-      if (pids.size === 0) {
-        return false;
-      }
-      
-      for (const pid of pids) {
-        try {
-          await execAsync(`taskkill /F /PID ${pid}`);
-          console.log(`✓ Killed existing process (PID: ${pid}) on port ${portNum}`);
-        } catch {
-          // Process might have already terminated
-        }
-      }
-    } else {
-      // Linux/macOS: Use fuser or lsof to find and kill process
-      try {
-        // Try fuser first (more reliable on Linux)
-        await execAsync(`fuser -k ${portNum}/tcp 2>/dev/null || true`);
-        console.log(`✓ Killed process on port ${portNum} using fuser`);
-      } catch {
-        // Fallback to lsof + kill
-        try {
-          const { stdout } = await execAsync(`lsof -t -i:${portNum} 2>/dev/null || true`);
-          const pids = stdout.trim().split("\n").filter(Boolean);
-          
-          if (pids.length === 0) {
-            return false;
-          }
-          
-          for (const pid of pids) {
-            try {
-              await execAsync(`kill -9 ${pid}`);
-              console.log(`✓ Killed existing process (PID: ${pid}) on port ${portNum}`);
-            } catch {
-              // Process might have already terminated
-            }
-          }
-        } catch {
-          return false;
-        }
-      }
-    }
-    
-    // Wait a moment for port to be released
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    return true;
-  } catch {
-    // No process found on port or command failed
-    return false;
-  }
-}
-
-// -----------------------------------------
-// BOOTSTRAP FUNCTIONS
+// BOOTSTRAP FUNCTIONS (async initialization)
 // -----------------------------------------
 async function bootstrap(): Promise<void> {
-  // [DEBUG] Check if Mailgun env vars are loaded (temporary - remove after debugging)
+  // [DEBUG] Check if Mailgun env vars are loaded
   console.log(`[ENV DEBUG] MAILGUN_API_KEY: ${process.env.MAILGUN_API_KEY ? "LOADED" : "MISSING"}`);
   console.log(`[ENV DEBUG] MAILGUN_DOMAIN: ${process.env.MAILGUN_DOMAIN ? "LOADED" : "MISSING"}`);
   console.log(`[ENV DEBUG] MAIL_FROM: ${process.env.MAIL_FROM ? "LOADED" : "MISSING"}`);
@@ -118,7 +38,6 @@ async function bootstrap(): Promise<void> {
     console.log("✓ Email templates initialized");
   } catch (err) {
     console.error("⚠ Failed to ensure email templates:", err);
-    // Non-fatal: continue server startup
   }
 
   // 4. Verify Mailgun connection
@@ -127,10 +46,9 @@ async function bootstrap(): Promise<void> {
     console.log("✓ Mail service (Mailgun) connected");
   } catch (err) {
     console.warn("⚠ Mail service verification failed - emails may not work:", err);
-    // Non-fatal: continue server startup
   }
 
-  // 6. Initialize Firebase Admin SDK (optional)
+  // 5. Initialize Firebase Admin SDK (optional)
   if (isFirebaseConfigured()) {
     try {
       initializeFirebaseAdmin();
@@ -140,7 +58,7 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // 7. Initialize backup scheduler (runs daily)
+  // 6. Initialize backup scheduler (runs daily)
   if (process.env.DISABLE_BACKUP_SCHEDULER !== "true") {
     try {
       initBackupScheduler();
@@ -152,73 +70,99 @@ async function bootstrap(): Promise<void> {
 }
 
 // -----------------------------------------
-// START SERVER WITH PORT CONFLICT HANDLING
+// SERVER INSTANCE (global for graceful shutdown)
 // -----------------------------------------
-async function startServer(retryAfterKill = true): Promise<void> {
+let server: http.Server | null = null;
+
+// -----------------------------------------
+// GRACEFUL SHUTDOWN
+// -----------------------------------------
+function setupGracefulShutdown(): void {
+  const shutdown = async (signal: string) => {
+    console.log(`\n${signal} received - shutting down gracefully...`);
+    
+    if (server) {
+      server.close(() => {
+        console.log("✓ HTTP server closed");
+        mongoose.connection.close(false).then(() => {
+          console.log("✓ MongoDB connection closed");
+          process.exit(0);
+        });
+      });
+    } else {
+      process.exit(0);
+    }
+    
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      console.error("✗ Forced shutdown after timeout");
+      process.exit(1);
+    }, 10000);
+  };
+  
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+// -----------------------------------------
+// START SERVER - BIND PORT FIRST, THEN INITIALIZE
+// -----------------------------------------
+// This approach prevents race conditions with PM2:
+// 1. Bind to port immediately (fail fast if port is in use)
+// 2. Then do async initialization (MongoDB, Mailgun, etc.)
+// 3. No auto-kill logic - let PM2 handle restarts cleanly
+async function startServer(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(PORT);
+    // Create HTTP server from Express app
+    server = http.createServer(app);
+    
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`✗ Port ${PORT} is already in use.`);
+        console.error("  → Stop other processes using this port, or use a different port.");
+        console.error("  → Run: sudo fuser -k 5000/tcp && pm2 restart salontraining-backend");
+      }
+      reject(err);
+    });
     
     server.on("listening", () => {
       console.log(`✓ Server listening on port ${PORT}`);
       console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log("✓ Server starts only once");
-      
-      // Graceful shutdown handling
-      const shutdown = async (signal: string) => {
-        console.log(`\n${signal} received - shutting down gracefully...`);
-        server.close(() => {
-          console.log("✓ HTTP server closed");
-          mongoose.connection.close(false).then(() => {
-            console.log("✓ MongoDB connection closed");
-            process.exit(0);
-          });
-        });
-        
-        // Force exit after 10 seconds
-        setTimeout(() => {
-          console.error("✗ Forced shutdown after timeout");
-          process.exit(1);
-        }, 10000);
-      };
-      
-      process.on("SIGTERM", () => shutdown("SIGTERM"));
-      process.on("SIGINT", () => shutdown("SIGINT"));
-      
       resolve();
     });
     
-    server.on("error", async (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE" && retryAfterKill) {
-        console.warn(`⚠ Port ${PORT} is already in use - attempting to free it...`);
-        
-        const killed = await killProcessOnPort(PORT);
-        if (killed) {
-          console.log("✓ Port freed - retrying server start...");
-          try {
-            await startServer(false); // Retry once without kill attempt
-            resolve();
-          } catch (retryErr) {
-            reject(retryErr);
-          }
-        } else {
-          reject(new Error(`Port ${PORT} is in use and could not be freed. Please close the other application or use a different port.`));
-        }
-      } else {
-        reject(err);
-      }
-    });
+    // Bind to port immediately - fail fast if port is in use
+    server.listen(PORT);
   });
 }
 
 // -----------------------------------------
-// START SERVER - ONLY WHEN RUN DIRECTLY
+// MAIN ENTRY POINT
 // -----------------------------------------
 // This guard ensures server.listen() is called EXACTLY ONCE
 // - When run directly (node server.js or ts-node server.ts): starts server
 // - When imported by api/index.ts for Vercel: does NOT start server
 if (require.main === module) {
-  bootstrap()
-    .then(() => startServer())
+  // Setup shutdown handlers first
+  setupGracefulShutdown();
+  
+  // IMPORTANT: Bind to port FIRST, then initialize services
+  // This prevents race conditions where multiple instances start initializing
+  // while waiting for port to be freed
+  startServer()
+    .then(() => {
+      console.log("✓ Port bound successfully, initializing services...");
+      return bootstrap();
+    })
+    .then(() => {
+      console.log("✓ All services initialized");
+      console.log("✓ Server ready to accept requests");
+      
+      // Signal PM2 that the app is ready (if using wait_ready)
+      if (process.send) {
+        process.send("ready");
+      }
+    })
     .catch((err) => {
       console.error("✗ Failed to start server:", err.message || err);
       process.exit(1);

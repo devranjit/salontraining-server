@@ -492,17 +492,146 @@ export const EMAIL_EVENTS: EmailEventConfig[] = [
     key: "membership.activated",
     label: "Membership Activated",
     description: "Sent to members when a membership becomes active or renews.",
-    defaultSubject: "Your SalonTraining membership is active",
+    defaultSubject: "Welcome to SalonTraining Pro! Your membership is now active",
     defaultHtml: `
-      <h1 style="color:#0f172a;">You're all set, {{user.name}}!</h1>
-      <p style="color:#475569;">Your <strong>{{plan.name}}</strong> membership is now active.</p>
-      <ul style="color:#475569;line-height:1.6;">
-        <li>Plan: {{plan.name}}</li>
-        <li>Price: {{plan.price}} / {{plan.interval}}</li>
-        <li>Expires: {{membership.expiryDate}}</li>
-      </ul>
-      <p style="margin-top:16px;">{{membership.invoiceCta}}</p>
-      <p style="color:#94a3b8;font-size:13px;margin-top:24px;">Need help? Reply to this email.</p>
+      <div style="max-width:640px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1e293b;background:#ffffff;">
+        <!-- Header with Brand -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-radius:16px 16px 0 0;">
+          <tr>
+            <td style="padding:32px 28px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p style="margin:0 0 4px;font-size:20px;font-weight:700;color:#d57a2c;letter-spacing:-0.5px;">SalonTraining</p>
+                    <h1 style="margin:8px 0 0;font-size:26px;font-weight:700;color:#ffffff;">Membership Activated!</h1>
+                  </td>
+                  <td style="text-align:right;vertical-align:top;">
+                    <div style="display:inline-block;background:linear-gradient(135deg,#16a34a 0%,#22c55e 100%);border-radius:24px;padding:8px 16px;">
+                      <span style="color:#ffffff;font-size:12px;font-weight:600;letter-spacing:0.05em;">✓ ACTIVE</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;">
+                <tr>
+                  <td style="color:#cbd5e1;font-size:15px;line-height:1.5;">
+                    Hi <strong style="color:#ffffff;">{{user.name}}</strong>,<br>
+                    Thank you for joining! Your membership is now active and you have full access to all member benefits.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Membership Details Card -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px;">
+              <h2 style="margin:0 0 20px;font-size:14px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">Membership Summary</h2>
+              
+              <!-- Receipt Box -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);border-radius:12px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <!-- Plan Name -->
+                      <tr>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Plan</span>
+                        </td>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#0f172a;font-size:15px;font-weight:700;">{{plan.name}}</span>
+                        </td>
+                      </tr>
+                      <!-- Billing Cycle -->
+                      <tr>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Billing Cycle</span>
+                        </td>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:500;text-transform:capitalize;">{{plan.interval}}ly</span>
+                        </td>
+                      </tr>
+                      <!-- Amount Paid -->
+                      <tr>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Amount Paid</span>
+                        </td>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#16a34a;font-size:16px;font-weight:700;">\${{plan.price}}</span>
+                        </td>
+                      </tr>
+                      <!-- Start Date -->
+                      <tr>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;">
+                          <span style="color:#64748b;font-size:13px;">Start Date</span>
+                        </td>
+                        <td style="padding:10px 0;border-bottom:1px solid #e2e8f0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:500;">{{membership.startDate}}</span>
+                        </td>
+                      </tr>
+                      <!-- Renewal/Expiry Date -->
+                      <tr>
+                        <td style="padding:10px 0;">
+                          <span style="color:#64748b;font-size:13px;">Renews On</span>
+                        </td>
+                        <td style="padding:10px 0;text-align:right;">
+                          <span style="color:#0f172a;font-size:14px;font-weight:500;">{{membership.nextBillingDate}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Member Benefits Highlight -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;background:#fef3c7;border-radius:12px;border-left:4px solid #f59e0b;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#92400e;">🎉 What's included with your membership:</p>
+                    <ul style="margin:0;padding-left:20px;color:#78350f;font-size:13px;line-height:1.8;">
+                      <li>Exclusive member-only content & tutorials</li>
+                      <li>Access to premium video library</li>
+                      <li>Priority support & community access</li>
+                    </ul>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA Buttons -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;">
+                <tr>
+                  <td style="text-align:center;">
+                    <a href="{{app.url}}/dashboard" style="display:inline-block;background:linear-gradient(135deg,#d57a2c 0%,#ea580c 100%);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:700;font-size:15px;">Go to Your Dashboard</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="text-align:center;padding-top:16px;">
+                    {{membership.invoiceCta}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;">
+          <tr>
+            <td style="padding:24px 28px;text-align:center;">
+              <p style="margin:0 0 12px;font-size:14px;color:#475569;">
+                <strong>Need help?</strong> Contact our support team at<br>
+                <a href="mailto:support@salontraining.com" style="color:#d57a2c;text-decoration:none;">support@salontraining.com</a>
+              </p>
+              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">
+                You're receiving this email because you purchased a SalonTraining membership.<br>
+                © SalonTraining. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
     `,
   },
   {
