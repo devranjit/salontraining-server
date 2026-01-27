@@ -58,6 +58,17 @@ const normalizeSocialLinks = (links?: any[]) => {
     .filter((link) => link.platform || link.url);
 };
 
+const normalizeCategories = (value?: any[]) => {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((cat) => (typeof cat === "string" ? cat.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+};
+
 const buildSlug = (name?: string) =>
   name
     ? name
@@ -506,11 +517,13 @@ export const createUserProduct = async (req: any, res: Response) => {
       productType,
       images,
       tags,
+      categories,
       couponCode,
       shopUrl,
       socialLinks,
       contactEmail,
       contactPhone,
+      optionalAddress,
     } = req.body;
 
     if (!name) {
@@ -539,6 +552,8 @@ export const createUserProduct = async (req: any, res: Response) => {
         ? parsedSalePrice
         : undefined;
 
+    const normalizedCategories = normalizeCategories(categories);
+
     const product = await Product.create({
       name,
       description,
@@ -548,6 +563,8 @@ export const createUserProduct = async (req: any, res: Response) => {
       productType: productType || "other",
       images: images || [],
       tags: tags || [],
+      categories: normalizedCategories,
+      optionalAddress: optionalAddress?.trim() || undefined,
       couponCode: couponCode?.trim() || undefined,
       shopUrl: shopUrl?.trim() || undefined,
       contactEmail: contactEmail?.trim() || undefined,
@@ -656,11 +673,13 @@ export const updateMyProduct = async (req: any, res: Response) => {
       productType,
       images,
       tags,
+      categories,
       couponCode,
       shopUrl,
       socialLinks,
       contactEmail,
       contactPhone,
+      optionalAddress,
     } = req.body;
 
     const updateData: any = {};
@@ -674,6 +693,17 @@ export const updateMyProduct = async (req: any, res: Response) => {
     if (productType !== undefined) updateData.productType = productType;
     if (images !== undefined) updateData.images = images;
     if (tags !== undefined) updateData.tags = tags;
+    if (categories !== undefined) {
+      updateData.categories = normalizeCategories(categories);
+    }
+    if (optionalAddress !== undefined) {
+      const trimmed = typeof optionalAddress === "string" ? optionalAddress.trim() : "";
+      if (trimmed) {
+        updateData.optionalAddress = trimmed;
+      } else {
+        updateData.optionalAddress = "";
+      }
+    }
     if (couponCode !== undefined) {
       const trimmed = typeof couponCode === "string" ? couponCode.trim() : "";
       if (trimmed) {
@@ -1039,6 +1069,7 @@ export const createProduct = async (req: any, res: Response) => {
       downloadExpiry,
       tags,
       brand,
+      categories,
       couponCode,
       weight,
       dimensions,
@@ -1061,6 +1092,7 @@ export const createProduct = async (req: any, res: Response) => {
       socialLinks,
       contactEmail,
       contactPhone,
+      optionalAddress,
     } = req.body;
 
     if (!name) {
@@ -1088,6 +1120,8 @@ export const createProduct = async (req: any, res: Response) => {
       parsedSalePrice !== undefined && !isNaN(parsedSalePrice)
         ? parsedSalePrice
         : undefined;
+
+    const normalizedCategories = normalizeCategories(categories);
 
     // Normalize bundle mode and determine product structure based on input
     const normalizedBundleMode = normalizeBundleMode(bundlePricingMode);
@@ -1150,6 +1184,7 @@ export const createProduct = async (req: any, res: Response) => {
       socialLinks: normalizeSocialLinks(socialLinks),
       contactEmail: contactEmail?.trim() || undefined,
       contactPhone: contactPhone?.trim() || undefined,
+      optionalAddress: optionalAddress?.trim() || undefined,
     });
 
     // Populate grouped products if any
@@ -1208,6 +1243,19 @@ export const updateProduct = async (req: any, res: Response) => {
       setData.bundleGroups = normalizeBundleGroups(updateData.bundleGroups);
       setData.bundlePricingMode = normalizeBundleMode(updateData.bundlePricingMode);
       delete updateData.bundleGroups;
+    }
+    if (updateData.categories !== undefined) {
+      setData.categories = normalizeCategories(updateData.categories);
+      delete updateData.categories;
+    }
+    if (updateData.optionalAddress !== undefined) {
+      const trimmed = typeof updateData.optionalAddress === "string" ? updateData.optionalAddress.trim() : "";
+      if (trimmed) {
+        setData.optionalAddress = trimmed;
+      } else {
+        unsetFields.optionalAddress = 1;
+      }
+      delete updateData.optionalAddress;
     }
     
     // Slug handling: only change slug when an explicit slug is provided.

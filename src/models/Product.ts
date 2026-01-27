@@ -216,6 +216,10 @@ const productSchema = new mongoose.Schema(
     
     // Tags for better searchability
     tags: [String],
+    categories: {
+      type: [String],
+      default: [],
+    },
     
     // Product source - distinguishes between store catalog and user listings
     productSource: {
@@ -233,6 +237,7 @@ const productSchema = new mongoose.Schema(
     // Optional contact info shown on listings
     contactEmail: { type: String, trim: true },
     contactPhone: { type: String, trim: true },
+    optionalAddress: { type: String, trim: true },
 
     // Social media links for the product/brand
     socialLinks: {
