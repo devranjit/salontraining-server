@@ -32,6 +32,11 @@ import {
 
 const router = express.Router();
 
+// Debug route - temporary, remove after confirming routes are mounted
+router.get("/preview", (_req, res) => {
+  res.json({ ok: true, message: "Membership routes mounted correctly. Use POST for actual preview." });
+});
+
 // Public / user routes
 router.get("/plans", listActivePlans);
 router.get("/config", getStripeConfig);
