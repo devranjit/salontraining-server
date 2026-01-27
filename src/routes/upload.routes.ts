@@ -15,35 +15,67 @@ const upload = multer({
   },
 });
 
-// Multer error handler middleware
-const handleMulterError = (err: Error, req: Request, res: Response, next: NextFunction) => {
-  if (err instanceof multer.MulterError) {
-    console.error("[Upload] Multer error:", err.code, err.message);
-    if (err.code === "LIMIT_FILE_SIZE") {
-      return res.status(400).json({
-        success: false,
-        message: "File too large. Maximum size is 10MB",
-      });
-    }
-    if (err.code === "LIMIT_FILE_COUNT") {
-      return res.status(400).json({
-        success: false,
-        message: "Too many files. Maximum is 10 files",
-      });
-    }
-    return res.status(400).json({
-      success: false,
-      message: `Upload error: ${err.message}`,
+/**
+ * Wrap multer middleware to properly catch and handle errors
+ * This ensures multer errors (like file too large) return proper JSON responses
+ */
+const handleUpload = (fieldName: string, maxCount?: number) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const uploadMiddleware = maxCount 
+      ? upload.array(fieldName, maxCount)
+      : upload.single(fieldName);
+    
+    uploadMiddleware(req, res, (err: any) => {
+      if (err) {
+        console.error(`[Upload] Multer error: ${err.code || err.name} - ${err.message}`);
+        
+        // Handle multer-specific errors
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(413).json({
+              success: false,
+              message: "File too large. Maximum size is 10MB",
+              code: "FILE_TOO_LARGE"
+            });
+          }
+          if (err.code === "LIMIT_FILE_COUNT") {
+            return res.status(400).json({
+              success: false,
+              message: "Too many files. Maximum is 10 files",
+              code: "TOO_MANY_FILES"
+            });
+          }
+          if (err.code === "LIMIT_UNEXPECTED_FILE") {
+            return res.status(400).json({
+              success: false,
+              message: `Unexpected field name. Expected: ${fieldName}`,
+              code: "UNEXPECTED_FIELD"
+            });
+          }
+          return res.status(400).json({
+            success: false,
+            message: `Upload error: ${err.message}`,
+            code: err.code
+          });
+        }
+        
+        // Handle other errors (like file type validation)
+        return res.status(400).json({
+          success: false,
+          message: err.message || "Upload failed",
+          code: "UPLOAD_ERROR"
+        });
+      }
+      next();
     });
-  }
-  next(err);
+  };
 };
 
 /**
  * SINGLE UPLOAD (field name: "file")
  * PROTECTED - requires authentication
  */
-router.post("/", protect, upload.single("file"), handleMulterError, async (req: Request, res: Response) => {
+router.post("/", protect, handleUpload("file"), async (req: Request, res: Response) => {
   try {
     console.log("[Upload] Single file upload request received");
     
@@ -78,7 +110,7 @@ router.post("/", protect, upload.single("file"), handleMulterError, async (req: 
                        err.message.includes("too large") ? 400 : 500;
     return res.status(statusCode).json({
       success: false,
-      message: err.message,
+      message: err.message || "Upload failed",
     });
   }
 });
@@ -87,7 +119,7 @@ router.post("/", protect, upload.single("file"), handleMulterError, async (req: 
  * IMAGE UPLOAD (field name: "image") - Used by product forms
  * PROTECTED - requires authentication
  */
-router.post("/image", protect, upload.single("image"), handleMulterError, async (req: Request, res: Response) => {
+router.post("/image", protect, handleUpload("image"), async (req: Request, res: Response) => {
   try {
     console.log("[Upload] Image upload request received");
     
@@ -123,7 +155,7 @@ router.post("/image", protect, upload.single("image"), handleMulterError, async 
                        err.message.includes("too large") ? 400 : 500;
     return res.status(statusCode).json({
       success: false,
-      message: err.message,
+      message: err.message || "Upload failed",
     });
   }
 });
@@ -133,7 +165,7 @@ router.post("/image", protect, upload.single("image"), handleMulterError, async 
  * MULTIPLE UPLOADS
  * PROTECTED - requires authentication
  */
-router.post("/multiple", protect, upload.array("files", 10), handleMulterError, async (req: Request, res: Response) => {
+router.post("/multiple", protect, handleUpload("files", 10), async (req: Request, res: Response) => {
   try {
     console.log("[Upload] Multiple files upload request received");
     
@@ -177,7 +209,7 @@ router.post("/multiple", protect, upload.array("files", 10), handleMulterError, 
                        err.message.includes("too large") ? 400 : 500;
     return res.status(statusCode).json({
       success: false,
-      message: err.message,
+      message: err.message || "Upload failed",
     });
   }
 });

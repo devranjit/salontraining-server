@@ -258,6 +258,54 @@ app.get("/api/cache-stats", (req: Request, res: Response) => {
 });
 
 // -----------------------------------------
+// GLOBAL ERROR HANDLER
+// -----------------------------------------
+// This MUST be the last middleware - catches all unhandled errors
+// Ensures we ALWAYS return valid JSON, never empty responses
+app.use((err: any, req: Request, res: Response, _next: any) => {
+  // Log the error for debugging
+  console.error("[GlobalError]", {
+    message: err.message,
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+    path: req.path,
+    method: req.method,
+  });
+
+  // Determine status code
+  let statusCode = err.statusCode || err.status || 500;
+  
+  // Handle specific error types
+  if (err.name === "PayloadTooLargeError" || err.type === "entity.too.large") {
+    statusCode = 413;
+    return res.status(413).json({
+      success: false,
+      message: "Request body too large. Maximum size is 10MB",
+      code: "PAYLOAD_TOO_LARGE"
+    });
+  }
+
+  if (err.name === "SyntaxError" && err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON in request body",
+      code: "INVALID_JSON"
+    });
+  }
+
+  // Don't leak error details in production
+  const message = process.env.NODE_ENV === "production" 
+    ? "An unexpected error occurred"
+    : err.message || "Unknown error";
+
+  // ALWAYS return valid JSON
+  return res.status(statusCode).json({
+    success: false,
+    message,
+    code: err.code || "INTERNAL_ERROR"
+  });
+});
+
+// -----------------------------------------
 // EXPORT APP ONLY - NO LISTEN HERE
 // -----------------------------------------
 export default app;
