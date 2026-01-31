@@ -9,6 +9,7 @@ export const REVIEW_TARGETS = [
   "virtual-class",
   "in-person",
   "blog",
+  "podcast",
 ] as const;
 
 export type ReviewTarget = (typeof REVIEW_TARGETS)[number];

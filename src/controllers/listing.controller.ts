@@ -5,31 +5,28 @@ import { expireOutdatedListings } from "../services/listingLifecycleService";
 
 export const createListing = async (req: any, res: Response) => {
   try {
-    const now = new Date();
-    const publishDate = req.body.publishDate
-      ? new Date(req.body.publishDate)
-      : now;
-    let expiryDate =
-      "expiryDate" in req.body
-        ? req.body.expiryDate
-          ? new Date(req.body.expiryDate)
-          : null
-        : undefined;
-    if (expiryDate === undefined && req.body.publishDate) {
-      const endOfDay = new Date(publishDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      expiryDate = endOfDay;
+    const title = String(req.body.title || "").trim();
+    if (!title) {
+      return res.status(400).json({ success: false, message: "Title is required" });
     }
-    const hasExpired = expiryDate ? expiryDate <= now : false;
+
+    const listingType = String(req.body.listingType || "podcast").trim();
+    const fullDescription = String(req.body.fullDescription || req.body.description || "").trim();
+
+    const rest = { ...req.body } as Record<string, unknown>;
+    delete rest.title;
+    delete rest.listingType;
+    delete rest.fullDescription;
+    delete rest.shortDescription;
+    delete rest.description;
 
     const listing = await Listing.create({
       owner: req.user._id,
-      featured: false,
-      ...req.body,
-      publishDate,
-      ...(expiryDate !== undefined ? { expiryDate } : {}),
-      isExpired: hasExpired,
-      isPublished: !hasExpired,
+      title,
+      listingType,
+      description: fullDescription,
+      shortDescription: typeof req.body.shortDescription === "string" ? req.body.shortDescription.trim() : undefined,
+      ...rest,
     });
 
     return res.json({ success: true, listing });
@@ -140,11 +137,34 @@ export const myListings = async (req: any, res: Response) => {
   try {
     await expireOutdatedListings();
 
-    const listings = await Listing.find({ owner: req.user._id }).sort({
+    const { listingType } = req.query;
+    const filter: Record<string, unknown> = { owner: req.user._id };
+    if (listingType) {
+      filter.listingType = String(listingType).trim();
+    }
+
+    const listings = await Listing.find(filter).sort({
       createdAt: -1,
     });
 
     return res.json({ success: true, listings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getMyListing = async (req: any, res: Response) => {
+  try {
+    const listing = await Listing.findOne({
+      _id: req.params.id,
+      owner: req.user._id,
+    });
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    return res.json({ success: true, listing });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

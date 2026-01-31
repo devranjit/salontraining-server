@@ -54,6 +54,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       memberships,
       seekingEmployment,
       proVerification,
+      listings,
     ] = await Promise.all([
       TrainerListing.countDocuments({ status: "pending" }),
       Event.countDocuments({ status: "pending" }),
@@ -70,6 +71,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       }),
       SeekingEmployment.countDocuments({ status: "pending" }),
       ProVerification.countDocuments({ status: "pending" }),
+      Listing.countDocuments({ status: "pending" }),
     ]);
 
     const counts = {
@@ -85,6 +87,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       memberships,
       seekingEmployment,
       proVerification,
+      listings,
     };
 
     const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
@@ -107,11 +110,15 @@ router.get("/listings", protect, adminOnly, async (req, res) => {
       search,
       status,
       featured,
+      listingType,
     } = req.query;
 
     const query: any = {};
     if (status) query.status = status;
     if (typeof featured === "string") query.featured = featured === "true";
+    if (listingType) {
+      query.listingType = String(listingType).trim();
+    }
 
     // Collect owner ids if searching by email/title
     let ownerIds: string[] | undefined;
@@ -153,6 +160,63 @@ router.get("/listings", protect, adminOnly, async (req, res) => {
 });
 
 // ADMIN — Delete ANY listing
+router.get("/listings/:id", protect, adminOnly, async (req, res) => {
+  try {
+    const listing = await Listing.findById(req.params.id).populate("owner", "name email role");
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    res.json({ success: true, listing });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put("/listings/:id", protect, adminOnly, async (req: any, res) => {
+  try {
+    await expireOutdatedListings();
+
+    const updatePayload: any = { ...req.body };
+    if (req.body.publishDate) {
+      updatePayload.publishDate = new Date(req.body.publishDate);
+    }
+
+    const now = new Date();
+    let expiryDate: Date | null | undefined;
+    if ("expiryDate" in req.body) {
+      expiryDate =
+        req.body.expiryDate === null || req.body.expiryDate === undefined
+          ? null
+          : new Date(req.body.expiryDate);
+    } else if (req.body.publishDate) {
+      const endOfDay = new Date(updatePayload.publishDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      expiryDate = endOfDay;
+    }
+
+    if (expiryDate !== undefined) {
+      updatePayload.expiryDate = expiryDate;
+      const hasExpired = expiryDate ? expiryDate <= now : false;
+      updatePayload.isExpired = hasExpired;
+      updatePayload.isPublished = !hasExpired;
+    }
+
+    const listing = await Listing.findByIdAndUpdate(req.params.id, updatePayload, {
+      new: true,
+    });
+
+    if (!listing) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    res.json({ success: true, listing });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.delete("/listings/:id", protect, adminOnly, async (req: any, res) => {
   try {
     const listing = await Listing.findById(req.params.id);

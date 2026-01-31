@@ -8,8 +8,40 @@ const listingSchema = new mongoose.Schema(
       required: true,
     },
 
+    listingType: {
+      type: String,
+      required: true,
+      default: "podcast",
+    },
+
     title: { type: String, required: true },
     description: String,
+    shortDescription: String,
+
+    coverImage: String,
+    hostName: String,
+    brandName: String,
+    primaryCategory: String,
+    secondaryCategory: String,
+    targetAudience: String,
+    podcastStatus: {
+      type: String,
+      enum: ["active", "on_break"],
+      default: "active",
+    },
+    frequency: String,
+    language: String,
+    applePodcastUrl: String,
+    spotifyUrl: String,
+    podcastLink: String,
+    authorType: {
+      type: String,
+      enum: ["person", "company"],
+    },
+    authorName: String,
+    additionalAuthors: [String],
+    contactEmail: String,
+    websiteUrl: String,
 
     email: String,
     phone: String,
