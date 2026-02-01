@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 
+// Helper function to generate slug from title
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "") // Remove special characters
+    .replace(/\s+/g, "-") // Replace spaces with hyphens
+    .replace(/-+/g, "-") // Replace multiple hyphens with single
+    .replace(/(^-|-$)/g, ""); // Remove leading/trailing hyphens
+}
+
 const listingSchema = new mongoose.Schema(
   {
     owner: {
@@ -15,6 +26,7 @@ const listingSchema = new mongoose.Schema(
     },
 
     title: { type: String, required: true },
+    slug: { type: String, unique: true, sparse: true },
     description: String,
     shortDescription: String,
 
@@ -96,5 +108,32 @@ const listingSchema = new mongoose.Schema(
 
 listingSchema.index({ expiryDate: 1 });
 listingSchema.index({ publishDate: 1 });
+listingSchema.index({ slug: 1 });
+
+// Pre-save hook to auto-generate slug from title
+listingSchema.pre("save", async function (next) {
+  try {
+    if (this.isNew || this.isModified("title")) {
+      const base = generateSlug(this.title || "podcast");
+      let slug = base;
+      let counter = 1;
+
+      // Ensure uniqueness
+      while (true) {
+        const existing = await mongoose
+          .model("Listing")
+          .findOne({ slug, _id: { $ne: this._id } });
+        if (!existing) break;
+        slug = `${base}-${counter}`;
+        counter += 1;
+      }
+
+      this.slug = slug;
+    }
+    next();
+  } catch (err) {
+    next(err as any);
+  }
+});
 
 export const Listing = mongoose.model("Listing", listingSchema);

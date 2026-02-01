@@ -87,7 +87,12 @@ export const getListing = async (req: any, res: Response) => {
   try {
     await expireOutdatedListings();
 
-    const listing = await Listing.findById(req.params.id);
+    const { id } = req.params;
+    // Support both ObjectId and slug lookups
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const listing = isObjectId
+      ? await Listing.findById(id)
+      : await Listing.findOne({ slug: id });
 
     if (!listing)
       return res
@@ -186,6 +191,34 @@ export const featuredListings = async (req: Request, res: Response) => {
     })
       .limit(12)
       .sort({ createdAt: -1 });
+
+    return res.json({ success: true, listings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Public endpoint to list all approved listings
+export const publicListings = async (req: Request, res: Response) => {
+  try {
+    await expireOutdatedListings();
+
+    const { listingType, limit = 100 } = req.query;
+    const now = new Date();
+
+    const filter: Record<string, unknown> = {
+      status: "approved",
+      isPublished: true,
+      isExpired: { $ne: true },
+    };
+
+    if (listingType) {
+      filter.listingType = String(listingType).trim();
+    }
+
+    const listings = await Listing.find(filter)
+      .limit(Number(limit))
+      .sort({ featured: -1, createdAt: -1 });
 
     return res.json({ success: true, listings });
   } catch (err: any) {
