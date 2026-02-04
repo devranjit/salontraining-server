@@ -9,6 +9,7 @@ import helmet from "helmet";
 import mongoSanitize from "express-mongo-sanitize";
 import hpp from "hpp";
 import { apiCache, getCacheStats } from "./middleware/cache";
+import { normalizeUrls } from "./middleware/normalizeUrls";
 
 // ROUTES
 import authRoutes from "./routes/auth.routes";
@@ -88,6 +89,12 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+// -----------------------------------------
+// URL NORMALIZATION (UX / safety)
+// -----------------------------------------
+// Ensures users can submit "example.com" and we store "https://example.com"
+app.use(normalizeUrls);
 
 // -----------------------------------------
 // RATE LIMITING

@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import http from "http";
+import fs from "fs";
+import path from "path";
 import { connectDB } from "./config/connectDB";
 import { ensureEmailDefaults } from "./services/emailService";
 import { verifyConnection as verifyMailConnection } from "./services/mailClient";
@@ -11,6 +13,57 @@ import app from "./app";
 // PORT CONFIGURATION
 // -----------------------------------------
 const PORT = process.env.PORT || 5000;
+
+// -----------------------------------------
+// DEV LOCK FILE (prevents duplicate local runs)
+// -----------------------------------------
+const IS_DEV = process.env.NODE_ENV !== "production";
+const LOCK_FILE = path.join(__dirname, "..", ".dev-server.lock");
+
+function checkDevLock(): boolean {
+  // Only apply lock in development
+  if (!IS_DEV) return true;
+
+  if (fs.existsSync(LOCK_FILE)) {
+    let lockInfo = "";
+    try {
+      lockInfo = fs.readFileSync(LOCK_FILE, "utf-8");
+    } catch {}
+    console.error("");
+    console.error("✗ Backend is already running in another terminal/process.");
+    console.error(`  Lock file exists: ${LOCK_FILE}`);
+    if (lockInfo) console.error(`  Started: ${lockInfo}`);
+    console.error("");
+    console.error("  To fix:");
+    console.error("  1. Stop the other backend process (Ctrl+C in that terminal)");
+    console.error("  2. Or delete the lock file manually if the process crashed:");
+    console.error(`     del "${LOCK_FILE}"`);
+    console.error("");
+    return false;
+  }
+  return true;
+}
+
+function createDevLock(): void {
+  if (!IS_DEV) return;
+  try {
+    const info = `PID: ${process.pid}, Time: ${new Date().toISOString()}`;
+    fs.writeFileSync(LOCK_FILE, info, "utf-8");
+  } catch (err) {
+    console.warn("⚠ Could not create dev lock file:", err);
+  }
+}
+
+function removeDevLock(): void {
+  if (!IS_DEV) return;
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      fs.unlinkSync(LOCK_FILE);
+    }
+  } catch {
+    // Ignore errors during cleanup
+  }
+}
 
 // -----------------------------------------
 // BOOTSTRAP FUNCTIONS (async initialization)
@@ -81,6 +134,9 @@ function setupGracefulShutdown(): void {
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} received - shutting down gracefully...`);
     
+    // Remove dev lock file first
+    removeDevLock();
+    
     if (server) {
       server.close(() => {
         console.log("✓ HTTP server closed");
@@ -102,6 +158,18 @@ function setupGracefulShutdown(): void {
   
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+  
+  // Also clean up on uncaught exceptions and unhandled rejections
+  process.on("uncaughtException", (err) => {
+    console.error("Uncaught Exception:", err);
+    removeDevLock();
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled Rejection:", reason);
+    removeDevLock();
+    process.exit(1);
+  });
 }
 
 // -----------------------------------------
@@ -118,9 +186,14 @@ async function startServer(): Promise<void> {
     
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
-        console.error(`✗ Port ${PORT} is already in use.`);
-        console.error("  → Stop other processes using this port, or use a different port.");
-        console.error("  → Run: sudo fuser -k 5000/tcp && pm2 restart salontraining-backend");
+        console.error("");
+        console.error("✗ Unable to start backend server");
+        console.error(`  Port ${PORT} is already in use (EADDRINUSE).`);
+        console.error(`  Another process is already listening on port ${PORT}.`);
+        console.error("  Stop the other process/service, then restart this backend.");
+        process.exitCode = 1;
+        setImmediate(() => process.exit(1));
+        return;
       }
       reject(err);
     });
@@ -143,8 +216,16 @@ async function startServer(): Promise<void> {
 // - When run directly (node server.js or ts-node server.ts): starts server
 // - When imported by api/index.ts for Vercel: does NOT start server
 if (require.main === module) {
+  // DEV ONLY: Check if another instance is already running
+  if (!checkDevLock()) {
+    process.exit(1);
+  }
+  
   // Setup shutdown handlers first
   setupGracefulShutdown();
+  
+  // DEV ONLY: Create lock file to prevent duplicate runs
+  createDevLock();
   
   // IMPORTANT: Bind to port FIRST, then initialize services
   // This prevents race conditions where multiple instances start initializing
@@ -165,6 +246,7 @@ if (require.main === module) {
     })
     .catch((err) => {
       console.error("✗ Failed to start server:", err.message || err);
+      removeDevLock();
       process.exit(1);
     });
 }
