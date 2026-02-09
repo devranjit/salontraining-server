@@ -55,6 +55,70 @@ export const submitContactForm = async (req: Request, res: Response) => {
 };
 
 // ===============================
+// PUBLIC — Community Popup Signup
+// ===============================
+export const submitCommunitySignup = async (req: Request, res: Response) => {
+  try {
+    const { name, email, phone } = req.body;
+
+    // Basic validation
+    if (!name || !email || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, and phone are required",
+      });
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address",
+      });
+    }
+
+    // Check for duplicate by email + source
+    const existing = await FormSubmission.findOne({
+      email: email.toLowerCase(),
+      source: "community-popup",
+    });
+
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "You're already part of the community!",
+        alreadyExists: true,
+      });
+    }
+
+    await FormSubmission.create({
+      type: "contact",
+      name,
+      email: email.toLowerCase(),
+      phone,
+      message: "Community popup signup — opted in to receive emails and texts about shows, education, and beauty industry tips.",
+      status: "new",
+      subscribed: true,
+      ipAddress: req.ip || req.headers["x-forwarded-for"] || "unknown",
+      userAgent: req.headers["user-agent"] || "unknown",
+      source: "community-popup",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Welcome to the community!",
+    });
+  } catch (error: any) {
+    console.error("Community signup error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to join. Please try again later.",
+    });
+  }
+};
+
+// ===============================
 // PUBLIC — Subscribe to Newsletter
 // ===============================
 export const subscribeNewsletter = async (req: Request, res: Response) => {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   submitContactForm,
+  submitCommunitySignup,
   subscribeNewsletter,
   unsubscribeNewsletter,
   getSubmissions,
@@ -21,6 +22,9 @@ const router = Router();
 // ===== PUBLIC ROUTES =====
 // Contact form submission
 router.post("/contact", submitContactForm);
+
+// Community popup signup
+router.post("/community-signup", submitCommunitySignup);
 
 // Newsletter subscription
 router.post("/newsletter/subscribe", subscribeNewsletter);

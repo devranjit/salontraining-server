@@ -15,6 +15,7 @@ import MemberVideo from "../models/MemberVideo";
 import UserMembership from "../models/UserMembership";
 import SeekingEmployment from "../models/SeekingEmployment";
 import ProVerification from "../models/ProVerification";
+import Order from "../models/Order";
 import { dispatchEmailEvent } from "../services/emailService";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
@@ -55,6 +56,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       seekingEmployment,
       proVerification,
       listings,
+      orders,
     ] = await Promise.all([
       TrainerListing.countDocuments({ status: "pending" }),
       Event.countDocuments({ status: "pending" }),
@@ -72,6 +74,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       SeekingEmployment.countDocuments({ status: "pending" }),
       ProVerification.countDocuments({ status: "pending" }),
       Listing.countDocuments({ status: "pending" }),
+      Order.countDocuments({ orderStatus: { $in: ["pending", "processing"] } }),
     ]);
 
     const counts = {
@@ -88,6 +91,7 @@ router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {
       seekingEmployment,
       proVerification,
       listings,
+      orders,
     };
 
     const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
