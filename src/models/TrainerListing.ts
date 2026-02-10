@@ -25,7 +25,7 @@ const trainerListingSchema = new mongoose.Schema(
     description: { type: String, default: "" },
 
     // Contact
-    email: { type: String, required: true },
+    email: { type: String },
     phone: { type: String },
     website: { type: String },
 
