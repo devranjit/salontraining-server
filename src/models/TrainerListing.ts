@@ -63,13 +63,20 @@ const trainerListingSchema = new mongoose.Schema(
     gallery: [
       {
         url: { type: String },
-        public_id: { type: String }
+        public_id: { type: String },
+        altText: { type: String },
       }
     ],
     thumbnail: {
       url: { type: String },
-      public_id: { type: String }
+      public_id: { type: String },
+      altText: { type: String },
     },
+
+    // SEO (optional)
+    metaTitle: { type: String },
+    metaDescription: { type: String },
+    imageAltText: { type: String },
 
     // System Fields
     status: {
