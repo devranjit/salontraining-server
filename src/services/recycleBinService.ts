@@ -12,6 +12,7 @@ import Category from "../models/Category";
 import { RecycleBinItem } from "../models/RecycleBinItem";
 import { TrainerListing } from "../models/TrainerListing";
 import Order from "../models/Order";
+import UpcomingMembersClass from "../models/UpcomingMembersClass";
 import { dispatchEmailEvent } from "./emailService";
 
 // Keep items for 15 days, then show a 5-day final warning window before purge.
@@ -31,7 +32,8 @@ type EntityKey =
   | "memberVideo"
   | "user"
   | "category"
-  | "order";
+  | "order"
+  | "upcomingMembersClass";
 
 type Metadata = Record<string, any>;
 
@@ -48,6 +50,7 @@ const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
   user: User,
   category: Category,
   order: Order,
+  upcomingMembersClass: UpcomingMembersClass,
 };
 
 const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
@@ -79,6 +82,11 @@ const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
       return {
         name: snapshot.name,
         description: snapshot.description,
+      };
+    case "upcomingMembersClass":
+      return {
+        title: snapshot.title,
+        instructor: snapshot.instructor,
       };
     case "order":
       // Get item names for display
