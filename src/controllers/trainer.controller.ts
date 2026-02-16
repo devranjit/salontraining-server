@@ -246,19 +246,43 @@ export const approveTrainer = async (req: any, res: Response) => {
   try {
     // Get current state for version history
     const currentListing = await TrainerListing.findById(req.params.id);
-    if (currentListing) {
-      await createVersionSnapshot("trainer", currentListing, {
-        changedBy: req.user?._id?.toString(),
-        changedByName: req.user?.name,
-        changedByEmail: req.user?.email,
-        changeType: "status_change",
-        newData: { status: "approved" },
-      });
+    if (!currentListing) {
+      return res.status(404).json({ success: false, message: "Trainer listing not found" });
+    }
+
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "status_change",
+      newData: { status: "approved" },
+    });
+
+    // Build the update: set status to approved and clear all pending fields
+    const updateData: Record<string, any> = {
+      status: "approved",
+    };
+
+    // If there are pending changes (from an update request), apply them to the listing
+    if (currentListing.pendingAction === "update" && currentListing.pendingChanges) {
+      const changes = typeof currentListing.pendingChanges === "object"
+        ? currentListing.pendingChanges
+        : {};
+      Object.assign(updateData, changes);
     }
 
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
-      { status: "approved" },
+      {
+        ...updateData,
+        $unset: {
+          pendingAction: "",
+          pendingChanges: "",
+          pendingReason: "",
+          pendingRequestedAt: "",
+          statusBeforePending: "",
+        },
+      },
       { new: true }
     );
 
@@ -287,19 +311,35 @@ export const rejectTrainer = async (req: any, res: Response) => {
   try {
     // Get current state for version history
     const currentListing = await TrainerListing.findById(req.params.id);
-    if (currentListing) {
-      await createVersionSnapshot("trainer", currentListing, {
-        changedBy: req.user?._id?.toString(),
-        changedByName: req.user?.name,
-        changedByEmail: req.user?.email,
-        changeType: "status_change",
-        newData: { status: "rejected" },
-      });
+    if (!currentListing) {
+      return res.status(404).json({ success: false, message: "Trainer listing not found" });
     }
+
+    await createVersionSnapshot("trainer", currentListing, {
+      changedBy: req.user?._id?.toString(),
+      changedByName: req.user?.name,
+      changedByEmail: req.user?.email,
+      changeType: "status_change",
+      newData: { status: "rejected" },
+    });
+
+    // If rejecting a pending update, restore the original status before the update request
+    const restoreStatus = currentListing.pendingAction
+      ? currentListing.statusBeforePending || "rejected"
+      : "rejected";
 
     const listing = await TrainerListing.findByIdAndUpdate(
       req.params.id,
-      { status: "rejected" },
+      {
+        status: restoreStatus,
+        $unset: {
+          pendingAction: "",
+          pendingChanges: "",
+          pendingReason: "",
+          pendingRequestedAt: "",
+          statusBeforePending: "",
+        },
+      },
       { new: true }
     );
 
