@@ -240,6 +240,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/version-history", versionHistoryRoutes);
 app.use("/api/admin/backups", backupRoutes);
 app.use("/api/upcoming-members-classes", upcomingMembersClassRoutes);
+app.use("/api/upcoming-classes", upcomingMembersClassRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK
