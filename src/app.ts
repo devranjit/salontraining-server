@@ -44,6 +44,7 @@ import userRoutes from "./routes/user.routes";
 import versionHistoryRoutes from "./routes/versionHistory.routes";
 import backupRoutes from "./routes/backup.routes";
 import upcomingMembersClassRoutes from "./routes/upcomingMembersClass.routes";
+import stMediaRoutes from "./routes/stMedia.routes";
 import "./lib/cloudinary";
 
 // -----------------------------------------
@@ -241,6 +242,7 @@ app.use("/api/version-history", versionHistoryRoutes);
 app.use("/api/admin/backups", backupRoutes);
 app.use("/api/upcoming-members-classes", upcomingMembersClassRoutes);
 app.use("/api/upcoming-classes", upcomingMembersClassRoutes);
+app.use("/api/st-media", stMediaRoutes);
 
 // -----------------------------------------
 // HEALTH CHECK

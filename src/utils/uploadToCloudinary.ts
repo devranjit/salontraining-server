@@ -9,6 +9,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/gif",
   "image/webp",
+  "video/mp4",
+  "video/webm",
   "application/pdf",
 ]);
 
@@ -39,7 +41,9 @@ export function validateFile(
 
   // Validate MIME type if provided
   if (mimeType && !ALLOWED_MIME_TYPES.has(mimeType.toLowerCase())) {
-    throw new Error(`Invalid file type: ${mimeType}. Allowed types: JPEG, PNG, GIF, WebP, PDF`);
+    throw new Error(
+      `Invalid file type: ${mimeType}. Allowed types: JPEG, PNG, GIF, WebP, MP4, WebM, PDF`
+    );
   }
 
   // Validate extension if filename provided
