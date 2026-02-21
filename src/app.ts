@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express, { Request, Response } from "express";
+import path from "path";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
@@ -148,7 +149,7 @@ app.options("*", cors({
   origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-st-media-type"],
   maxAge: 86400, // Cache preflight for 24 hours
 }));
 
@@ -195,7 +196,7 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-st-media-type"],
   })
 );
 
@@ -205,6 +206,14 @@ app.use(
 // -----------------------------------------
 // Apply cache middleware globally - it only caches whitelisted public routes
 app.use(apiCache);
+
+// -----------------------------------------
+// STATIC FILES (local uploads served from disk)
+// -----------------------------------------
+app.use("/uploads", (_req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+}, express.static(path.join(process.cwd(), "uploads")));
 
 // -----------------------------------------
 // API ROUTES

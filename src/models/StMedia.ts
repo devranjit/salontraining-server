@@ -7,6 +7,7 @@ export interface IStMedia extends Document {
   title?: string;
   description?: string;
   date?: Date;
+  status: "draft" | "published";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +41,11 @@ const StMediaSchema = new Schema<IStMedia>(
     date: {
       type: Date,
     },
+    status: {
+      type: String,
+      enum: ["draft", "published"],
+      default: "draft",
+    },
   },
   {
     timestamps: true,
@@ -47,7 +53,7 @@ const StMediaSchema = new Schema<IStMedia>(
   }
 );
 
-StMediaSchema.index({ createdAt: -1 });
+StMediaSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model<IStMedia>("StMedia", StMediaSchema);
 

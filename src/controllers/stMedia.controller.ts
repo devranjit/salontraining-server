@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
+import path from "path";
 import StMedia from "../models/StMedia";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 
@@ -65,19 +67,41 @@ export const createStMedia = async (req: any, res: Response) => {
       });
     }
 
-    const uploaded = await uploadToCloudinary(
-      req.file.buffer,
-      req.file.mimetype,
-      req.file.originalname
-    );
+    let thumbnailPath: string;
+
+    if (thumbnailType === "video") {
+      if (!req.file.buffer || !req.file.buffer.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Video upload failed — no file data received",
+        });
+      }
+
+      const ext = path.extname(req.file.originalname || "").toLowerCase() || ".mp4";
+      const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      const videoDir = path.resolve(process.cwd(), "uploads", "st-media", "videos");
+      fs.mkdirSync(videoDir, { recursive: true });
+      const destPath = path.join(videoDir, uniqueName);
+      fs.writeFileSync(destPath, req.file.buffer);
+
+      thumbnailPath = `/uploads/st-media/videos/${uniqueName}`;
+    } else {
+      const uploaded = await uploadToCloudinary(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname
+      );
+      thumbnailPath = uploaded.url;
+    }
 
     const item = await StMedia.create({
       thumbnailType,
-      thumbnailPath: uploaded.url,
+      thumbnailPath,
       linkUrl: linkUrl || undefined,
       title: title || undefined,
       description: description || undefined,
       date: date ? new Date(date) : undefined,
+      status: "draft",
     });
 
     return res.status(201).json({
@@ -95,7 +119,7 @@ export const createStMedia = async (req: any, res: Response) => {
 
 export const getStMedia = async (_req: Request, res: Response) => {
   try {
-    const items = await StMedia.find().sort({ createdAt: -1 });
+    const items = await StMedia.find({ status: "published" }).sort({ createdAt: -1 });
     return res.json({
       success: true,
       items,
@@ -105,6 +129,60 @@ export const getStMedia = async (_req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: err?.message || "Failed to fetch ST Media items",
+    });
+  }
+};
+
+export const getStMediaAdmin = async (_req: Request, res: Response) => {
+  try {
+    const items = await StMedia.find().sort({ createdAt: -1 });
+    return res.json({
+      success: true,
+      items,
+    });
+  } catch (err: any) {
+    console.error("Get ST Media Admin error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Failed to fetch ST Media items",
+    });
+  }
+};
+
+export const updateStMediaStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !["draft", "published"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "status is required and must be draft or published",
+      });
+    }
+
+    const item = await StMedia.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true, runValidators: true }
+    );
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "ST Media item not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      item,
+    });
+  } catch (err: any) {
+    console.error("Update ST Media status error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err?.message || "Failed to update ST Media status",
     });
   }
 };
@@ -121,13 +199,24 @@ export const deleteStMedia = async (req: Request, res: Response) => {
       });
     }
 
-    const publicId = extractCloudinaryPublicId(item.thumbnailPath);
-    if (publicId) {
-      const resourceType = item.thumbnailType === "video" ? "video" : "image";
+    if (item.thumbnailType === "video" && item.thumbnailPath.startsWith("/uploads/st-media/videos/")) {
+      const localPath = path.join(process.cwd(), item.thumbnailPath.replace(/^\//, ""));
       try {
-        await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
-      } catch (uploadDeleteErr) {
-        console.warn("ST Media file deletion failed:", uploadDeleteErr);
+        if (fs.existsSync(localPath)) {
+          fs.unlinkSync(localPath);
+        }
+      } catch (localDeleteErr) {
+        console.warn("ST Media local video deletion failed:", localDeleteErr);
+      }
+    } else {
+      const publicId = extractCloudinaryPublicId(item.thumbnailPath);
+      if (publicId) {
+        const resourceType = item.thumbnailType === "video" ? "video" : "image";
+        try {
+          await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+        } catch (uploadDeleteErr) {
+          console.warn("ST Media file deletion failed:", uploadDeleteErr);
+        }
       }
     }
 
