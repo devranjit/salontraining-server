@@ -12,10 +12,15 @@ const IMAGE_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-const VIDEO_MIME_TYPES = new Set([
-  "video/mp4",
-  "video/webm",
-]);
+function isValidHttpUrl(value: string): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 function extractCloudinaryPublicId(url: string): string | null {
   try {
@@ -36,7 +41,7 @@ function extractCloudinaryPublicId(url: string): string | null {
 
 export const createStMedia = async (req: any, res: Response) => {
   try {
-    const { thumbnailType, linkUrl, title, description, date } = req.body;
+    const { thumbnailType, linkUrl, title, description, date, videoUrl } = req.body;
 
     if (!thumbnailType || !["image", "video"].includes(thumbnailType)) {
       return res.status(400).json({
@@ -45,47 +50,47 @@ export const createStMedia = async (req: any, res: Response) => {
       });
     }
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "thumbnailFile is required",
-      });
-    }
-
-    const mimeType = String(req.file.mimetype || "").toLowerCase();
-    const imageType = thumbnailType === "image";
-    const validMimeType = imageType
-      ? IMAGE_MIME_TYPES.has(mimeType)
-      : VIDEO_MIME_TYPES.has(mimeType);
-
-    if (!validMimeType) {
-      return res.status(400).json({
-        success: false,
-        message: imageType
-          ? "Invalid image format. Allowed: jpg, jpeg, png, webp"
-          : "Invalid video format. Allowed: mp4, webm",
-      });
-    }
-
     let thumbnailPath: string;
 
     if (thumbnailType === "video") {
-      if (!req.file.buffer || !req.file.buffer.length) {
+      if (req.file) {
         return res.status(400).json({
           success: false,
-          message: "Video upload failed — no file data received",
+          message: "Video items require a video URL. File uploads are not allowed.",
+        });
+      }
+      const normalizedVideoUrl = String(videoUrl || "").trim();
+      if (!normalizedVideoUrl) {
+        return res.status(400).json({
+          success: false,
+          message: "Video URL is required for video items",
+        });
+      }
+      if (!isValidHttpUrl(normalizedVideoUrl)) {
+        return res.status(400).json({
+          success: false,
+          message: "Enter a valid video URL",
+        });
+      }
+      thumbnailPath = normalizedVideoUrl;
+    } else {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "thumbnailFile is required",
         });
       }
 
-      const ext = path.extname(req.file.originalname || "").toLowerCase() || ".mp4";
-      const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-      const videoDir = path.resolve(process.cwd(), "uploads", "st-media", "videos");
-      fs.mkdirSync(videoDir, { recursive: true });
-      const destPath = path.join(videoDir, uniqueName);
-      fs.writeFileSync(destPath, req.file.buffer);
+      const mimeType = String(req.file.mimetype || "").toLowerCase();
+      const validMimeType = IMAGE_MIME_TYPES.has(mimeType);
 
-      thumbnailPath = `/uploads/st-media/videos/${uniqueName}`;
-    } else {
+      if (!validMimeType) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image format. Allowed: jpg, jpeg, png, webp",
+        });
+      }
+
       const uploaded = await uploadToCloudinary(
         req.file.buffer,
         req.file.mimetype,
