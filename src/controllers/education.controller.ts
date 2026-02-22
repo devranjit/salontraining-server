@@ -38,6 +38,11 @@ export const getEducationListings = async (req: Request, res: Response) => {
       limit = 12,
       featured,
     } = req.query;
+    const latRaw = req.query.lat ?? req.query.latitude;
+    const lngRaw = req.query.lng ?? req.query.longitude;
+    const userLat = Number(latRaw);
+    const userLng = Number(lngRaw);
+    const locationFilteringActive = Number.isFinite(userLat) && Number.isFinite(userLng);
 
     const now = new Date();
     const query: any = {
@@ -51,6 +56,9 @@ export const getEducationListings = async (req: Request, res: Response) => {
     // Filter by education type
     if (educationType && educationType !== "all") {
       query.educationType = educationType;
+    }
+    if (locationFilteringActive) {
+      query.educationType = "in-person";
     }
 
     // Search
@@ -92,6 +100,115 @@ export const getEducationListings = async (req: Request, res: Response) => {
     const pageNum = parseInt(page as string) || 1;
     const limitNum = parseInt(limit as string) || 12;
     const skip = (pageNum - 1) * limitNum;
+
+    if (locationFilteringActive) {
+      const listingsRaw = await Education.find(query).select("-adminNotes").lean();
+      const requestedCity = typeof city === "string" ? city.trim().toLowerCase() : "";
+      const requestedState = typeof state === "string" ? state.trim().toLowerCase() : "";
+      const requestedZip = typeof req.query.zip === "string" ? req.query.zip.trim().toLowerCase() : "";
+      const thresholdKm = 80;
+
+      const hasText = (v: any) => typeof v === "string" ? v.trim().length > 0 : v != null;
+      const hasNumber = (v: any) => typeof v === "number" && Number.isFinite(v);
+      const toNorm = (v: any) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+      const hasPreciseCoords = (item: any) =>
+        hasNumber(item?.coords?.lat) &&
+        hasNumber(item?.coords?.lng) &&
+        item.coords.lat >= -90 &&
+        item.coords.lat <= 90 &&
+        item.coords.lng >= -180 &&
+        item.coords.lng <= 180;
+      const hasApproxLocation = (item: any) =>
+        hasText(item?.city) || hasText(item?.state) || hasText(item?.zip);
+      const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLng = toRad(lng2 - lng1);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+      };
+      const approximateRank = (item: any) => {
+        let score = 1000000;
+        const itemCity = toNorm(item?.city);
+        const itemState = toNorm(item?.state);
+        const itemZip = toNorm(item?.zip);
+
+        if (requestedCity && itemCity) {
+          if (itemCity === requestedCity) score -= 3000;
+          else if (itemCity.includes(requestedCity) || requestedCity.includes(itemCity)) score -= 1500;
+        }
+        if (requestedState && itemState) {
+          if (itemState === requestedState) score -= 2000;
+          else if (itemState.includes(requestedState) || requestedState.includes(itemState)) score -= 1000;
+        }
+        if (requestedZip && itemZip) {
+          if (itemZip === requestedZip) score -= 2500;
+          else if (itemZip.startsWith(requestedZip) || requestedZip.startsWith(itemZip)) score -= 1000;
+        }
+        if (score === 1000000) score = 900000;
+        return score;
+      };
+
+      const enriched = listingsRaw
+        .map((item: any) => {
+          if (hasPreciseCoords(item)) {
+            return {
+              ...item,
+              __distanceKm: haversineKm(userLat, userLng, item.coords.lat, item.coords.lng),
+              __locationMode: "precise",
+              __approxRank: 0,
+            };
+          }
+          if (hasApproxLocation(item)) {
+            return {
+              ...item,
+              __distanceKm: null,
+              __locationMode: "approximate",
+              __approxRank: approximateRank(item),
+            };
+          }
+          return null;
+        })
+        .filter(Boolean) as any[];
+
+      const precise = enriched.filter((item) => item.__locationMode === "precise");
+      const approximate = enriched.filter((item) => item.__locationMode === "approximate");
+      const nearby = precise
+        .filter((item) => item.__distanceKm <= thresholdKm)
+        .sort((a, b) => a.__distanceKm - b.__distanceKm);
+      const farther = precise
+        .filter((item) => item.__distanceKm > thresholdKm)
+        .sort((a, b) => a.__distanceKm - b.__distanceKm);
+      const preciseOrdered = nearby.length > 0 ? [...nearby, ...farther] : [...precise].sort((a, b) => a.__distanceKm - b.__distanceKm);
+      const approximateOrdered = approximate.sort((a, b) => {
+        if (a.__approxRank !== b.__approxRank) return a.__approxRank - b.__approxRank;
+        return String(a.title || "").localeCompare(String(b.title || ""));
+      });
+      const ordered = [...preciseOrdered, ...approximateOrdered];
+      const total = ordered.length;
+      const paged = ordered.slice(skip, skip + limitNum).map((item) => {
+        const { __distanceKm, __locationMode, __approxRank, ...rest } = item;
+        return {
+          ...rest,
+          ...(typeof __distanceKm === "number" ? { distanceKm: Number(__distanceKm.toFixed(2)) } : {}),
+          ...(typeof __locationMode === "string" ? { locationMode: __locationMode } : {}),
+        };
+      });
+
+      return res.json({
+        success: true,
+        listings: paged,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum),
+        },
+      });
+    }
 
     const [listings, total] = await Promise.all([
       Education.find(query)
