@@ -127,7 +127,16 @@ router.get("/:idOrSlug", async (req, res) => {
         .json({ success: false, message: "Trainer not found" });
     }
 
-    return res.json({ success: true, trainer });
+    const trainerObj = (trainer as any)?.toObject ? (trainer as any).toObject() : trainer;
+    const trainerResponse = {
+      ...trainerObj,
+      // Backward-compatible SEO aliases for SSR consumers.
+      seoTitle: trainerObj?.seoTitle ?? trainerObj?.metaTitle ?? "",
+      seoDescription: trainerObj?.seoDescription ?? trainerObj?.metaDescription ?? "",
+      name: trainerObj?.name ?? trainerObj?.title ?? "",
+    };
+
+    return res.json({ success: true, trainer: trainerResponse });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

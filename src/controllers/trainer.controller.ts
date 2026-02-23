@@ -715,13 +715,24 @@ export async function getAllTrainers(req: Request, res: Response) {
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [listings, total] = await Promise.all([
+    const [rawListings, total] = await Promise.all([
       TrainerListing.find(query)
         .sort(sortOption[(sort as string) || "newest"] || { ...baseSort, createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
       TrainerListing.countDocuments(query),
     ]);
+
+    const listings = rawListings.map((listing: any) => {
+      const item = listing?.toObject ? listing.toObject() : listing;
+      return {
+        ...item,
+        // Backward-compatible SEO aliases for SSR consumers.
+        seoTitle: item?.seoTitle ?? item?.metaTitle ?? "",
+        seoDescription: item?.seoDescription ?? item?.metaDescription ?? "",
+        name: item?.name ?? item?.title ?? "",
+      };
+    });
 
     return res.json({
       success: true,

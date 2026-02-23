@@ -46,6 +46,7 @@ import versionHistoryRoutes from "./routes/versionHistory.routes";
 import backupRoutes from "./routes/backup.routes";
 import upcomingMembersClassRoutes from "./routes/upcomingMembersClass.routes";
 import stMediaRoutes from "./routes/stMedia.routes";
+import { TrainerListing } from "./models/TrainerListing";
 import "./lib/cloudinary";
 
 // -----------------------------------------
@@ -252,6 +253,103 @@ app.use("/api/admin/backups", backupRoutes);
 app.use("/api/upcoming-members-classes", upcomingMembersClassRoutes);
 app.use("/api/upcoming-classes", upcomingMembersClassRoutes);
 app.use("/api/st-media", stMediaRoutes);
+
+app.get("/trainers", async (_req: Request, res: Response) => {
+  try {
+    const trainers = await TrainerListing.find({
+      status: { $in: ["approved", "published"] },
+    }).sort({ featured: -1, createdAt: -1 });
+
+    const stripHtml = (value: string = "") =>
+      value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+    const escapeHtml = (value: string = "") =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const listHtml = trainers
+      .map((trainer: any) => {
+        const title = trainer.title || "";
+        const description = stripHtml(trainer.description || "");
+        const excerpt =
+          description.length > 120 ? `${description.slice(0, 120).trim()}...` : description;
+        const slug = trainer.slug || "";
+        return `<li><h2>${escapeHtml(title)}</h2><div>${escapeHtml(excerpt)}</div><a href="/trainers/${encodeURIComponent(slug)}">View trainer</a></li>`;
+      })
+      .join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Salon Trainers | SalonTraining</title>
+    <meta name="description" content="Browse salon trainers and explore their expertise, services, and profiles." />
+  </head>
+  <body>
+    <h1>Salon Trainers</h1>
+    <ul>${listHtml}</ul>
+  </body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(html);
+  } catch (_err) {
+    return res.status(500).send("Internal server error");
+  }
+});
+
+app.get("/trainers/:slug", async (req: Request, res: Response) => {
+  try {
+    const trainer = await TrainerListing.findOne({ slug: req.params.slug });
+
+    if (!trainer) {
+      return res.status(404).send("Trainer not found");
+    }
+
+    const stripHtml = (value: string = "") =>
+      value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+    const escapeHtml = (value: string = "") =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const trainerTitle = trainer.title || "";
+    const trainerDescription = stripHtml(trainer.description || "");
+    const seoTitle = (trainer as any).seoTitle || trainer.metaTitle || trainerTitle;
+    const seoDescription =
+      (trainer as any).seoDescription ||
+      trainer.metaDescription ||
+      trainerDescription.slice(0, 160);
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(seoTitle)}</title>
+    <meta name="description" content="${escapeHtml(seoDescription)}" />
+  </head>
+  <body>
+    <h1>${escapeHtml(trainerTitle)}</h1>
+    <div>${escapeHtml(trainerDescription)}</div>
+  </body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(html);
+  } catch (_err) {
+    return res.status(500).send("Internal server error");
+  }
+});
 
 // -----------------------------------------
 // HEALTH CHECK
