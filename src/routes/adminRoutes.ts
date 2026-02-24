@@ -20,6 +20,7 @@ import { dispatchEmailEvent } from "../services/emailService";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
 import { createNotification } from "../controllers/notification.controller";
+import { adminGetAllContests } from "../controllers/contest.controller";
 
 const router = Router();
 
@@ -34,6 +35,8 @@ router.get("/users", protect, adminOnly, async (req, res) => {
   const users = await User.find().sort({ createdAt: -1 });
   res.json({ success: true, users });
 });
+
+router.get("/contest", protect, adminOnly, adminGetAllContests);
 
 // ADMIN — Unified notification counts for sidebar badges
 router.get("/notifications", protect, managerOrAdmin, async (_req, res) => {

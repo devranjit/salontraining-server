@@ -136,6 +136,32 @@ export const adminListContests = async (_req: Request, res: Response) => {
   }
 };
 
+export const adminGetAllContests = async (_req: Request, res: Response) => {
+  try {
+    const listSort: { createdAt: SortOrder } = { createdAt: -1 };
+    const contests = await Contest.find()
+      .sort(listSort)
+      .select("title submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
+      .lean<ContestDoc[]>()
+      .exec();
+
+    return res.json({
+      success: true,
+      contests: contests.map((contest) => ({
+        contestId: contest._id,
+        title: contest.title,
+        submissionStartTime: contest.submissionStartTime,
+        submissionEndTime: contest.submissionEndTime,
+        votingStartTime: contest.votingStartTime,
+        votingEndTime: contest.votingEndTime,
+        resultTime: contest.resultTime,
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load contests" });
+  }
+};
+
 export const adminGetContest = async (req: Request, res: Response) => {
   try {
     const contest = await Contest.findById(req.params.id)
