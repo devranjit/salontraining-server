@@ -46,6 +46,7 @@ import versionHistoryRoutes from "./routes/versionHistory.routes";
 import backupRoutes from "./routes/backup.routes";
 import upcomingMembersClassRoutes from "./routes/upcomingMembersClass.routes";
 import stMediaRoutes from "./routes/stMedia.routes";
+import contestRoutes from "./routes/contest.routes";
 import { TrainerListing } from "./models/TrainerListing";
 import "./lib/cloudinary";
 
@@ -253,6 +254,7 @@ app.use("/api/admin/backups", backupRoutes);
 app.use("/api/upcoming-members-classes", upcomingMembersClassRoutes);
 app.use("/api/upcoming-classes", upcomingMembersClassRoutes);
 app.use("/api/st-media", stMediaRoutes);
+app.use("/api/contests", contestRoutes);
 
 app.get("/trainers", async (_req: Request, res: Response) => {
   try {
