@@ -19,11 +19,26 @@ const contestEntrySchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    images: {
+      type: [String],
+      default: [],
+    },
+    caption: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     approvalStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending",
       required: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
       index: true,
     },
     voteCount: {

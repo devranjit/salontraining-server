@@ -5,6 +5,7 @@ import Contest from "../models/Contest";
 import ContestEntry from "../models/ContestEntry";
 import ContestPrize from "../models/ContestPrize";
 import { resolveContestState } from "../utils/resolveContestState";
+import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 
 type AuthRequest = Request & { user?: any };
 type ContestDoc = {
@@ -193,6 +194,36 @@ export const adminGetContest = async (req: Request, res: Response) => {
     });
   } catch (_error) {
     return res.status(500).json({ success: false, message: "Failed to load contest" });
+  }
+};
+
+export const adminGetContestEntries = async (req: Request, res: Response) => {
+  try {
+    const { contestId } = req.params;
+
+    const entries = await ContestEntry.find({ contestId })
+      .sort({ createdAt: -1 })
+      .populate("userId", "name first_name last_name email")
+      .select("_id contestId userId imageUrl images caption status approvalStatus voteCount createdAt updatedAt")
+      .lean<any[]>();
+
+    return res.status(200).json({
+      entries: entries.map((entry) => ({
+        entryId: entry._id,
+        contestId: entry.contestId,
+        userId: entry.userId,
+        imageUrl: entry.imageUrl || "",
+        images: Array.isArray(entry.images) && entry.images.length > 0 ? entry.images : (entry.imageUrl ? [entry.imageUrl] : []),
+        caption: entry.caption || "",
+        status: entry.status || entry.approvalStatus || "pending",
+        approvalStatus: entry.approvalStatus || entry.status || "pending",
+        voteCount: Number(entry.voteCount || 0),
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ message: "Failed to load contest entries" });
   }
 };
 
@@ -523,6 +554,55 @@ export const adminConfigureContestPrizes = async (req: Request, res: Response) =
     return res.json({ success: true });
   } catch (_error) {
     return res.status(500).json({ success: false, message: "Failed to save contest prizes" });
+  }
+};
+
+export const createContestEntry = async (req: AuthRequest, res: Response) => {
+  try {
+    const { contestId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const contest = await Contest.findById(contestId).select("_id").lean<{ _id: mongoose.Types.ObjectId }>().exec();
+    if (!contest) {
+      return res.status(404).json({ success: false, message: "Contest not found" });
+    }
+
+    const files = ((req.files as Express.Multer.File[] | undefined) || []).filter(Boolean);
+    if (!files.length) {
+      return res.status(400).json({ success: false, message: "At least one image is required" });
+    }
+
+    const uploadedUrls = await Promise.all(
+      files.map((file) =>
+        uploadToCloudinary(file.buffer, file.mimetype, file.originalname).then((result) => String(result.url))
+      )
+    );
+
+    const caption = typeof req.body?.caption === "string" ? req.body.caption.trim() : "";
+
+    const entry = await ContestEntry.create({
+      contestId,
+      userId,
+      imageUrl: uploadedUrls[0],
+      images: uploadedUrls,
+      caption,
+      approvalStatus: "pending",
+      status: "pending",
+      voteCount: 0,
+    });
+
+    return res.status(201).json({
+      success: true,
+      entryId: entry._id,
+      status: "pending",
+      imageCount: uploadedUrls.length,
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to submit contest entry" });
   }
 };
 
