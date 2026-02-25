@@ -8,6 +8,7 @@ import { Job } from "../models/Job";
 import { Education } from "../models/Education";
 import MemberVideo from "../models/MemberVideo";
 import Review from "../models/Review";
+import { getHeroBadgeStats } from "../services/heroStats.service";
 
 // ---------------------------------------------
 // TIMEOUT UTILITIES
@@ -634,6 +635,22 @@ export const getUserDashboardStats = async (req: any, res: Response) => {
         message: "Failed to fetch dashboard stats",
       });
     }
+  }
+};
+
+export const getPublicHeroBadgeStats = async (_req: Request, res: Response) => {
+  try {
+    const stats = await getHeroBadgeStats();
+    return res.json({
+      success: true,
+      stats,
+    });
+  } catch (err) {
+    console.error("Public hero badge stats error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch hero badge stats",
+    });
   }
 };
 
