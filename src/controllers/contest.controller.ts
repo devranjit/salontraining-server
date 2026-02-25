@@ -11,6 +11,7 @@ type ContestDoc = {
   _id: mongoose.Types.ObjectId;
   title: string;
   description?: string;
+  status?: "draft" | "published";
   submissionStartTime: Date;
   submissionEndTime: Date;
   votingStartTime: Date;
@@ -33,6 +34,7 @@ type ContestPrizeDoc = {
   rank: number;
   prizeTitle: string;
   prizeDescription: string;
+  image?: string;
 };
 
 function parseContestTimes(body: any) {
@@ -98,6 +100,7 @@ export const adminCreateContest = async (req: Request, res: Response) => {
     const contest = await Contest.create({
       title: String(title).trim(),
       description: String(description || ""),
+      status: "draft",
       ...times,
     });
 
@@ -115,7 +118,7 @@ export const adminListContests = async (_req: Request, res: Response) => {
     const listSort: { createdAt: SortOrder } = { createdAt: -1 };
     const contests = await Contest.find()
       .sort(listSort)
-      .select("title submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
+      .select("title status submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
       .lean<ContestDoc[]>()
       .exec();
 
@@ -124,6 +127,7 @@ export const adminListContests = async (_req: Request, res: Response) => {
       contests: contests.map((contest) => ({
         contestId: contest._id,
         title: contest.title,
+        status: contest.status || "published",
         submissionStartTime: contest.submissionStartTime,
         submissionEndTime: contest.submissionEndTime,
         votingStartTime: contest.votingStartTime,
@@ -141,7 +145,7 @@ export const adminGetAllContests = async (_req: Request, res: Response) => {
     const listSort: { createdAt: SortOrder } = { createdAt: -1 };
     const contests = await Contest.find()
       .sort(listSort)
-      .select("title submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
+      .select("title status submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
       .lean<ContestDoc[]>()
       .exec();
 
@@ -150,6 +154,7 @@ export const adminGetAllContests = async (_req: Request, res: Response) => {
       contests: contests.map((contest) => ({
         contestId: contest._id,
         title: contest.title,
+        status: contest.status || "published",
         submissionStartTime: contest.submissionStartTime,
         submissionEndTime: contest.submissionEndTime,
         votingStartTime: contest.votingStartTime,
@@ -165,7 +170,7 @@ export const adminGetAllContests = async (_req: Request, res: Response) => {
 export const adminGetContest = async (req: Request, res: Response) => {
   try {
     const contest = await Contest.findById(req.params.id)
-      .select("title description submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
+      .select("title description status submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime")
       .lean<ContestDoc>()
       .exec();
     if (!contest) {
@@ -178,6 +183,7 @@ export const adminGetContest = async (req: Request, res: Response) => {
         contestId: contest._id,
         title: contest.title,
         description: contest.description || "",
+        status: contest.status || "published",
         submissionStartTime: contest.submissionStartTime,
         submissionEndTime: contest.submissionEndTime,
         votingStartTime: contest.votingStartTime,
@@ -222,6 +228,32 @@ export const adminUpdateContest = async (req: Request, res: Response) => {
   }
 };
 
+export const adminUpdateContestStatus = async (req: Request, res: Response) => {
+  try {
+    const nextStatus = String(req.body?.status || "").trim().toLowerCase();
+    if (nextStatus !== "draft" && nextStatus !== "published") {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
+    const updated = await Contest.findByIdAndUpdate(
+      req.params.id,
+      { status: nextStatus },
+      { new: true }
+    ).select("_id status");
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Contest not found" });
+    }
+
+    return res.json({
+      success: true,
+      status: (updated as any).status || "published",
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to update contest status" });
+  }
+};
+
 export const adminModerateContestEntry = async (req: AuthRequest, res: Response) => {
   try {
     const { contestEntryId } = req.params;
@@ -263,7 +295,10 @@ export const adminModerateContestEntry = async (req: AuthRequest, res: Response)
 export const getContestStatePublic = async (req: Request, res: Response) => {
   try {
     const { contestId } = req.params;
-    const contest = await Contest.findById(contestId).select(
+    const contest = await Contest.findOne({
+      _id: contestId,
+      $or: [{ status: "published" }, { status: { $exists: false } }],
+    }).select(
       "submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime"
     ).lean<ContestTimeDoc>().exec();
     if (!contest) {
@@ -293,7 +328,10 @@ export const getContestStatePublic = async (req: Request, res: Response) => {
 export const getApprovedContestEntriesPublic = async (req: Request, res: Response) => {
   try {
     const { contestId } = req.params;
-    const contest = await Contest.findById(contestId).select(
+    const contest = await Contest.findOne({
+      _id: contestId,
+      $or: [{ status: "published" }, { status: { $exists: false } }],
+    }).select(
       "submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime"
     ).lean<ContestTimeDoc>().exec();
     if (!contest) {
@@ -346,7 +384,10 @@ export const getApprovedContestEntriesPublic = async (req: Request, res: Respons
 export const getContestResultsPublic = async (req: Request, res: Response) => {
   try {
     const contestId = req.params.contestId || req.params.id;
-    const contest = await Contest.findById(contestId).select(
+    const contest = await Contest.findOne({
+      _id: contestId,
+      $or: [{ status: "published" }, { status: { $exists: false } }],
+    }).select(
       "submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime"
     ).lean<ContestTimeDoc>().exec();
     if (!contest) {
@@ -482,5 +523,64 @@ export const adminConfigureContestPrizes = async (req: Request, res: Response) =
     return res.json({ success: true });
   } catch (_error) {
     return res.status(500).json({ success: false, message: "Failed to save contest prizes" });
+  }
+};
+
+export const adminGetContestPrizes = async (req: Request, res: Response) => {
+  try {
+    const contestId = req.params.id;
+    const prizes = await ContestPrize.find({ contestId })
+      .sort({ rank: 1 })
+      .select("rank prizeTitle prizeDescription image")
+      .lean<ContestPrizeDoc[]>();
+
+    return res.json({
+      prizes: prizes.map((prize) => ({
+        rank: Number(prize.rank),
+        title: prize.prizeTitle,
+        description: prize.prizeDescription,
+        image: prize.image || "",
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load contest prizes" });
+  }
+};
+
+export const getPublishedContestsPublic = async (_req: Request, res: Response) => {
+  try {
+    const listSort: { createdAt: SortOrder } = { createdAt: -1 };
+    const contests = await Contest.find({
+      $or: [{ status: "published" }, { status: { $exists: false } }],
+    })
+      .sort(listSort)
+      .select("title description status submissionStartTime submissionEndTime votingStartTime votingEndTime resultTime thumbnail")
+      .lean<any[]>()
+      .exec();
+
+    return res.json({
+      success: true,
+      contests: contests.map((contest) => ({
+        contestId: contest._id,
+        title: contest.title,
+        description: contest.description || "",
+        status: contest.status || "published",
+        state: resolveContestState({
+          submissionStartTime: contest.submissionStartTime,
+          submissionEndTime: contest.submissionEndTime,
+          votingStartTime: contest.votingStartTime,
+          votingEndTime: contest.votingEndTime,
+          resultTime: contest.resultTime,
+        }).state,
+        thumbnail: contest.thumbnail || null,
+        submissionStartTime: contest.submissionStartTime,
+        submissionEndTime: contest.submissionEndTime,
+        votingStartTime: contest.votingStartTime,
+        votingEndTime: contest.votingEndTime,
+        resultTime: contest.resultTime,
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load contests" });
   }
 };

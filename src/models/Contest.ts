@@ -4,6 +4,11 @@ const contestSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     description: { type: String, default: "" },
+    status: {
+      type: String,
+      enum: ["draft", "published"],
+      default: "draft",
+    },
     submissionStartTime: { type: Date, required: true },
     submissionEndTime: { type: Date, required: true },
     votingStartTime: { type: Date, required: true },
