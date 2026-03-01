@@ -7,7 +7,7 @@ import { resolveContestState } from "../utils/resolveContestState";
 
 type VoteResult =
   | { success: true; voteCount: number }
-  | { success: false; alreadyVoted: true }
+  | { success: false; alreadyVoted: true; message: string; votedEntryId?: string }
   | { success: false; message: string };
 
 function getClientIp(req: Request): string {
@@ -16,13 +16,18 @@ function getClientIp(req: Request): string {
   return forwarded.split(",")[0]?.trim() || realIp.trim() || req.ip || "";
 }
 
-function getVoterIpHash(req: Request): string {
+function getVoterDeviceHash(req: Request): string {
   const ip = getClientIp(req);
+  const userAgent = String(req.headers["user-agent"] || "");
   const secret = process.env.JWT_SECRET || "";
-  return crypto.createHash("sha256").update(`${secret}:${ip}`).digest("hex");
+  return crypto.createHash("sha256").update(`${secret}:${ip}:${userAgent}`).digest("hex");
 }
 
-export async function processContestVote(contestEntryId: string, req: Request): Promise<VoteResult> {
+export async function processContestVote(
+  contestEntryId: string,
+  req: Request,
+  providedDeviceId?: string
+): Promise<VoteResult> {
   const entry = await ContestEntry.findById(contestEntryId).select("_id contestId approvalStatus voteCount");
   if (!entry) {
     return { success: false, message: "Entry not found" };
@@ -51,16 +56,40 @@ export async function processContestVote(contestEntryId: string, req: Request): 
     return { success: false, message: "Voting is not open" };
   }
 
-  const voterIpHash = getVoterIpHash(req);
+  const deviceId = (providedDeviceId || "").trim() || getVoterDeviceHash(req);
+  const voterDeviceHash = getVoterDeviceHash(req);
+  const existingContestVote = await ContestVote.findOne({
+    contestId: entry.contestId,
+    $or: [{ deviceId }, { voterDeviceHash }],
+  }).select("contestEntryId");
+  if (existingContestVote) {
+    return {
+      success: false,
+      alreadyVoted: true,
+      message: "You have already voted in this contest.",
+      votedEntryId: String(existingContestVote.contestEntryId || ""),
+    };
+  }
 
   try {
     await ContestVote.create({
+      contestId: entry.contestId,
       contestEntryId: entry._id,
-      voterIpHash,
+      voterDeviceHash,
+      deviceId,
     });
   } catch (err: any) {
     if (err?.code === 11000) {
-      return { success: false, alreadyVoted: true };
+      const lockedVote = await ContestVote.findOne({
+        contestId: entry.contestId,
+        $or: [{ deviceId }, { voterDeviceHash }],
+      }).select("contestEntryId");
+      return {
+        success: false,
+        alreadyVoted: true,
+        message: "You have already voted in this contest.",
+        votedEntryId: lockedVote?.contestEntryId ? String(lockedVote.contestEntryId) : undefined,
+      };
     }
     return { success: false, message: "Failed to process vote" };
   }

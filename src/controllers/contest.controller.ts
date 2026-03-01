@@ -1,9 +1,12 @@
 import { Request, Response } from "express";
+import crypto from "crypto";
 import mongoose from "mongoose";
 import { SortOrder } from "mongoose";
 import Contest from "../models/Contest";
 import ContestEntry from "../models/ContestEntry";
+import ContestEntryComment from "../models/ContestEntryComment";
 import ContestPrize from "../models/ContestPrize";
+import { processContestVote } from "../services/contestVoteService";
 import { resolveContestState } from "../utils/resolveContestState";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 
@@ -46,6 +49,16 @@ type ContestPrizeDoc = {
   prizeTitle: string;
   prizeDescription: string;
   image?: string;
+};
+type ContestEntryCommentDoc = {
+  _id: mongoose.Types.ObjectId;
+  contestId: mongoose.Types.ObjectId;
+  entryId: mongoose.Types.ObjectId;
+  text: string;
+  authorName?: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 function parseContestTimes(body: any) {
@@ -238,6 +251,27 @@ export const adminGetContestEntries = async (req: Request, res: Response) => {
       .select("_id contestId userId imageUrl images caption status approvalStatus voteCount createdAt updatedAt")
       .lean<any[]>();
 
+    const entryIds = entries.map((entry) => entry._id).filter(Boolean);
+    const approvedCommentCounts = entryIds.length
+      ? await ContestEntryComment.aggregate<{ _id: mongoose.Types.ObjectId; total: number }>([
+          {
+            $match: {
+              entryId: { $in: entryIds },
+              status: "approved",
+            },
+          },
+          {
+            $group: {
+              _id: "$entryId",
+              total: { $sum: 1 },
+            },
+          },
+        ])
+      : [];
+    const commentCountByEntryId = new Map(
+      approvedCommentCounts.map((row) => [String(row._id), Number(row.total || 0)])
+    );
+
     return res.status(200).json({
       entries: entries.map((entry) => ({
         entryId: entry._id,
@@ -249,12 +283,31 @@ export const adminGetContestEntries = async (req: Request, res: Response) => {
         status: entry.status || entry.approvalStatus || "pending",
         approvalStatus: entry.approvalStatus || entry.status || "pending",
         voteCount: Number(entry.voteCount || 0),
+        approvedCommentCount: commentCountByEntryId.get(String(entry._id)) || 0,
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
       })),
     });
   } catch (_error) {
     return res.status(500).json({ message: "Failed to load contest entries" });
+  }
+};
+
+export const adminGetContestPendingCount = async (req: Request, res: Response) => {
+  try {
+    const { contestId } = req.params;
+    const pendingCount = await ContestEntry.countDocuments({
+      contestId,
+      approvalStatus: "pending",
+    });
+
+    return res.status(200).json({
+      success: true,
+      contestId,
+      pendingCount: Number(pendingCount || 0),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load pending submission count" });
   }
 };
 
@@ -537,6 +590,210 @@ export const getContestResultsPublic = async (req: Request, res: Response) => {
   }
 };
 
+function resolveVoteDeviceId(req: Request, res: Response): string {
+  const existingCookie = String((req as any)?.cookies?.contest_vote_device_id || "").trim();
+  if (existingCookie) return existingCookie;
+
+  const fallbackSource = [
+    String((req.headers["x-forwarded-for"] as string | undefined) || "").split(",")[0].trim(),
+    String((req.headers["x-real-ip"] as string | undefined) || "").trim(),
+    String(req.ip || ""),
+    String(req.headers["user-agent"] || ""),
+  ]
+    .filter(Boolean)
+    .join("|");
+  const fallbackHash = crypto.createHash("sha256").update(fallbackSource).digest("hex");
+  const generated = crypto.randomUUID ? crypto.randomUUID() : fallbackHash;
+
+  res.cookie("contest_vote_device_id", generated, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 24 * 365,
+  });
+  return generated;
+}
+
+export const voteContestEntryPublic = async (req: Request, res: Response) => {
+  try {
+    const { entryId } = req.params;
+    const deviceId = resolveVoteDeviceId(req, res);
+    const result = await processContestVote(entryId, req, deviceId);
+    return res.json(result);
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to process vote" });
+  }
+};
+
+export const getApprovedContestCommentsPublic = async (req: Request, res: Response) => {
+  try {
+    const { contestId } = req.params;
+    const comments = await ContestEntryComment.find({
+      contestId,
+      status: "approved",
+    })
+      .sort({ createdAt: -1 })
+      .select("_id contestId entryId text authorName status createdAt updatedAt")
+      .lean<ContestEntryCommentDoc[]>();
+
+    return res.json({
+      success: true,
+      comments: comments.map((comment) => ({
+        commentId: comment._id,
+        contestId: comment.contestId,
+        entryId: comment.entryId,
+        text: comment.text,
+        authorName: comment.authorName || "Guest",
+        status: comment.status,
+        createdAt: comment.createdAt,
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load comments" });
+  }
+};
+
+export const createContestEntryCommentPublic = async (req: Request, res: Response) => {
+  try {
+    const { contestId, entryId } = req.params;
+    const text = String(req.body?.text || "").trim();
+    const authorName = String(req.body?.authorName || "").trim();
+
+    if (!text) {
+      return res.status(400).json({ success: false, message: "Comment text is required" });
+    }
+    if (text.length > 1000) {
+      return res.status(400).json({ success: false, message: "Comment is too long" });
+    }
+
+    const entry = await ContestEntry.findOne({
+      _id: entryId,
+      contestId,
+      approvalStatus: "approved",
+    })
+      .select("_id contestId")
+      .lean<{ _id: mongoose.Types.ObjectId; contestId: mongoose.Types.ObjectId }>()
+      .exec();
+    if (!entry) {
+      return res.status(404).json({ success: false, message: "Entry not found" });
+    }
+
+    const comment = await ContestEntryComment.create({
+      contestId: entry.contestId,
+      entryId: entry._id,
+      text,
+      authorName,
+      status: "pending",
+    });
+
+    return res.status(201).json({
+      success: true,
+      commentId: comment._id,
+      status: comment.status,
+      message: "Comment submitted for approval",
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to submit comment" });
+  }
+};
+
+export const adminGetContestComments = async (req: Request, res: Response) => {
+  try {
+    const { contestId } = req.params;
+    const comments = await ContestEntryComment.find({ contestId })
+      .sort({ status: 1, createdAt: -1 })
+      .select("_id contestId entryId text authorName status createdAt updatedAt")
+      .lean<ContestEntryCommentDoc[]>();
+
+    return res.json({
+      success: true,
+      comments: comments.map((comment) => ({
+        commentId: comment._id,
+        contestId: comment.contestId,
+        entryId: comment.entryId,
+        text: comment.text,
+        authorName: comment.authorName || "Guest",
+        status: comment.status,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load comments" });
+  }
+};
+
+export const adminUpdateContestCommentStatus = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const status = String(req.body?.status || "").trim().toLowerCase();
+    if (!["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
+    const comment = await ContestEntryComment.findByIdAndUpdate(
+      commentId,
+      { status },
+      { new: true }
+    ).select("_id status");
+    if (!comment) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+
+    return res.json({
+      success: true,
+      commentId: comment._id,
+      status: (comment as any).status,
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to update comment status" });
+  }
+};
+
+export const adminEditContestComment = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const text = String(req.body?.text || "").trim();
+    if (!text) {
+      return res.status(400).json({ success: false, message: "Comment text is required" });
+    }
+    if (text.length > 1000) {
+      return res.status(400).json({ success: false, message: "Comment is too long" });
+    }
+
+    const updated = await ContestEntryComment.findByIdAndUpdate(
+      commentId,
+      { text },
+      { new: true }
+    ).select("_id text status");
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+
+    return res.json({
+      success: true,
+      commentId: updated._id,
+      text: (updated as any).text,
+      status: (updated as any).status,
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to edit comment" });
+  }
+};
+
+export const adminDeleteContestComment = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const deleted = await ContestEntryComment.findByIdAndDelete(commentId).select("_id");
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Comment not found" });
+    }
+    return res.json({ success: true });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to delete comment" });
+  }
+};
+
 export const adminConfigureContestPrizes = async (req: Request, res: Response) => {
   try {
     const contestId = req.params.id;
@@ -711,5 +968,38 @@ export const getPublishedContestsPublic = async (_req: Request, res: Response) =
     });
   } catch (_error) {
     return res.status(500).json({ success: false, message: "Failed to load contests" });
+  }
+};
+
+export const getContestPrizesPublic = async (req: Request, res: Response) => {
+  try {
+    const { contestId } = req.params;
+    const contest = await Contest.findOne({
+      _id: contestId,
+      $or: [{ status: "published" }, { status: { $exists: false } }],
+    })
+      .select("_id")
+      .lean<{ _id: mongoose.Types.ObjectId }>()
+      .exec();
+    if (!contest) {
+      return res.status(404).json({ success: false, message: "Contest not found" });
+    }
+
+    const prizes = await ContestPrize.find({ contestId })
+      .sort({ rank: 1 })
+      .select("rank prizeTitle prizeDescription image")
+      .lean<ContestPrizeDoc[]>();
+
+    return res.json({
+      success: true,
+      prizes: prizes.map((prize) => ({
+        rank: Number(prize.rank),
+        title: prize.prizeTitle,
+        description: prize.prizeDescription,
+        imageUrl: prize.image || "",
+      })),
+    });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to load contest prizes" });
   }
 };
