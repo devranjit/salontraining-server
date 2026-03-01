@@ -14,6 +14,9 @@ const contestSchema = new mongoose.Schema(
     votingStartTime: { type: Date, required: true },
     votingEndTime: { type: Date, required: true },
     resultTime: { type: Date, required: true },
+    showSubmissionTimer: { type: Boolean, default: true },
+    showVotingTimer: { type: Boolean, default: true },
+    showResultTimer: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
