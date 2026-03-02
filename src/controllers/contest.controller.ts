@@ -7,6 +7,7 @@ import ContestEntry from "../models/ContestEntry";
 import ContestEntryComment from "../models/ContestEntryComment";
 import ContestPrize from "../models/ContestPrize";
 import { processContestVote } from "../services/contestVoteService";
+import { moveToRecycleBin } from "../services/recycleBinService";
 import { resolveContestState } from "../utils/resolveContestState";
 import { uploadToCloudinary } from "../utils/uploadToCloudinary";
 
@@ -368,6 +369,20 @@ export const adminUpdateContestStatus = async (req: Request, res: Response) => {
     });
   } catch (_error) {
     return res.status(500).json({ success: false, message: "Failed to update contest status" });
+  }
+};
+
+export const adminArchiveContest = async (req: AuthRequest, res: Response) => {
+  try {
+    const contest = await Contest.findById(req.params.id);
+    if (!contest) {
+      return res.status(404).json({ success: false, message: "Contest not found" });
+    }
+
+    await moveToRecycleBin("contest", contest, { deletedBy: req.user?._id?.toString() });
+    return res.json({ success: true, message: "Contest archived" });
+  } catch (_error) {
+    return res.status(500).json({ success: false, message: "Failed to archive contest" });
   }
 };
 

@@ -4,6 +4,7 @@ import { upload } from "../middleware/upload";
 import {
   adminConfigureContestPrizes,
   adminCreateContest,
+  adminArchiveContest,
   adminDeleteContestComment,
   adminEditContestComment,
   adminGetContest,
@@ -45,6 +46,7 @@ router.get("/admin/contest/:contestId/entries", protect, adminOnly, adminGetCont
 router.get("/admin/contest/:contestId/comments", protect, adminOnly, adminGetContestComments);
 router.get("/admin/contest/:contestId/pending-count", protect, adminOnly, adminGetContestPendingCount);
 router.put("/admin/contest/:id", protect, adminOnly, adminUpdateContest);
+router.delete("/admin/contest/:id", protect, adminOnly, adminArchiveContest);
 router.patch("/admin/contest/:id/status", protect, adminOnly, adminUpdateContestStatus);
 router.get("/admin/contest/:id/prizes", protect, adminOnly, adminGetContestPrizes);
 router.post("/admin/contest/:id/prizes", protect, adminOnly, adminConfigureContestPrizes);

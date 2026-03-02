@@ -13,6 +13,7 @@ import { RecycleBinItem } from "../models/RecycleBinItem";
 import { TrainerListing } from "../models/TrainerListing";
 import Order from "../models/Order";
 import UpcomingMembersClass from "../models/UpcomingMembersClass";
+import Contest from "../models/Contest";
 import { dispatchEmailEvent } from "./emailService";
 
 // Keep items for 15 days, then show a 5-day final warning window before purge.
@@ -22,6 +23,7 @@ const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
 type EntityKey =
   | "listing"
+  | "contest"
   | "trainer"
   | "event"
   | "product"
@@ -39,6 +41,7 @@ type Metadata = Record<string, any>;
 
 const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
   listing: Listing,
+  contest: Contest,
   trainer: TrainerListing,
   event: Event,
   product: Product,
@@ -56,6 +59,7 @@ const ENTITY_REGISTRY: Record<EntityKey, Model<any>> = {
 const buildMetadata = (entityType: EntityKey, snapshot: any): Metadata => {
   switch (entityType) {
     case "listing":
+    case "contest":
     case "trainer":
     case "event":
     case "product":
