@@ -453,9 +453,9 @@ export const getMyEventById = async (req: any, res: Response) => {
     });
 
     if (!event) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Event not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -476,9 +476,9 @@ export const updateMyEvent = async (req: any, res: Response) => {
     });
 
     if (!event) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Event not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -532,9 +532,9 @@ export const deleteMyEvent = async (req: any, res: Response) => {
     });
 
     if (!event) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Event not found or unauthorized",
+        message: "Access denied",
       });
     }
 

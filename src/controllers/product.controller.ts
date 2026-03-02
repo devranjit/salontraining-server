@@ -636,9 +636,9 @@ export const getMyProductById = async (req: any, res: Response) => {
     }).populate("category", "name");
 
     if (!product) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Product not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -657,9 +657,9 @@ export const updateMyProduct = async (req: any, res: Response) => {
     });
 
     if (!product) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Product listing not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -749,9 +749,9 @@ export const deleteMyProduct = async (req: any, res: Response) => {
     });
 
     if (!product) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Product not found or unauthorized",
+        message: "Access denied",
       });
     }
 

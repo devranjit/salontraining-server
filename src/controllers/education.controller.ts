@@ -8,6 +8,7 @@ import {
   expireOutdatedEducation,
 } from "../services/educationLifecycleService";
 import { createVersionSnapshot } from "../services/versionHistoryService";
+import { sanitizeTextFields } from "../utils/sanitizeText";
 
 // Helper to get image URL from various formats
 const getImageUrl = (item: any): string | undefined => {
@@ -372,11 +373,32 @@ export const createEducation = async (req: any, res: Response) => {
     });
     const hasExpired = expiryDate ? expiryDate <= now : false;
 
+    const sanitizedText = sanitizeTextFields(
+      {
+        title,
+        description,
+        specialOffers,
+        prerequisites,
+        whatYouWillLearn,
+        materialsIncluded,
+        embedHtml,
+      },
+      [
+        "title",
+        "description",
+        "specialOffers",
+        "prerequisites",
+        "whatYouWillLearn",
+        "materialsIncluded",
+        "embedHtml",
+      ]
+    ) as Record<string, string>;
+
     const newListing = new Education({
       owner: req.user._id,
       educationType,
-      title,
-      description,
+      title: sanitizedText.title,
+      description: sanitizedText.description,
       category,
       tags,
       email,
@@ -410,14 +432,14 @@ export const createEducation = async (req: any, res: Response) => {
       resource1,
       resource2,
       videoUrl,
-      embedHtml,
+      embedHtml: sanitizedText.embedHtml,
       gallery,
       thumbnail,
-      specialOffers,
+      specialOffers: sanitizedText.specialOffers,
       maxAttendees,
-      prerequisites,
-      whatYouWillLearn,
-      materialsIncluded,
+      prerequisites: sanitizedText.prerequisites,
+      whatYouWillLearn: sanitizedText.whatYouWillLearn,
+      materialsIncluded: sanitizedText.materialsIncluded,
       certificationOffered,
       status: "pending",
       publishDate: now,
@@ -462,9 +484,9 @@ export const getMyEducationById = async (req: any, res: Response) => {
     });
 
     if (!listing) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Education listing not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -482,7 +504,7 @@ export const updateMyEducation = async (req: any, res: Response) => {
     const listing = await Education.findOne({ _id: req.params.id, owner: req.user._id });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     const now = new Date();
@@ -505,15 +527,24 @@ export const updateMyEducation = async (req: any, res: Response) => {
       isExpired: hasExpired,
       isPublished: !hasExpired,
     };
+    const sanitizedUpdatePayload = sanitizeTextFields(updatePayload, [
+      "title",
+      "description",
+      "specialOffers",
+      "prerequisites",
+      "whatYouWillLearn",
+      "materialsIncluded",
+      "embedHtml",
+    ]);
 
     const updated = await Education.findOneAndUpdate(
       { _id: req.params.id, owner: req.user._id },
-      updatePayload,
+      sanitizedUpdatePayload,
       { new: true, runValidators: true }
     );
 
     if (!updated) {
-      return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     // If user updates, set status back to pending for re-review
@@ -537,7 +568,7 @@ export const deleteMyEducation = async (req: any, res: Response) => {
     const listing = await Education.findOne({ _id: req.params.id, owner: req.user._id });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Education listing not found or you don't own it" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     await moveToRecycleBin("education", listing, { deletedBy: req.user?.id });
@@ -678,14 +709,27 @@ export const adminUpdateEducation = async (req: any, res: Response) => {
     });
     const hasExpired = expiryDate ? expiryDate <= now : false;
 
-    const updated = await Education.findByIdAndUpdate(
-      req.params.id,
+    const updatePayload = sanitizeTextFields(
       {
         ...req.body,
         ...(expiryDate !== undefined ? { expiryDate } : {}),
         isExpired: hasExpired,
         isPublished: !hasExpired,
       },
+      [
+        "title",
+        "description",
+        "specialOffers",
+        "prerequisites",
+        "whatYouWillLearn",
+        "materialsIncluded",
+        "embedHtml",
+      ]
+    );
+
+    const updated = await Education.findByIdAndUpdate(
+      req.params.id,
+      updatePayload,
       {
         new: true,
         runValidators: true,

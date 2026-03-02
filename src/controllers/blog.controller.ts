@@ -3,6 +3,7 @@ import { Blog } from "../models/Blog";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { User } from "../models/User";
 import { createVersionSnapshot } from "../services/versionHistoryService";
+import { sanitizeTextFields } from "../utils/sanitizeText";
 
 const normalizeCategory = (value?: string) => (value || "").trim();
 const normalizeTags = (tags: any): string[] => {
@@ -208,10 +209,11 @@ export const createBlog = async (req: any, res: Response) => {
   try {
     const category = normalizeCategory(req.body.category);
     const tags = normalizeTags(req.body.tags);
+    const sanitizedBody = sanitizeTextFields(req.body, ["title", "excerpt", "content"]);
 
     const blog = await Blog.create({
       owner: req.user.id,
-      ...req.body,
+      ...sanitizedBody,
       category,
       tags,
       status: "pending",
@@ -251,7 +253,10 @@ export const getMyBlogs = async (req: Request, res: Response) => {
 export const updateMyBlog = async (req: Request, res: Response) => {
   try {
     const userId = req.user?._id || req.user?.id;
-    const updatePayload: any = { ...req.body, status: "pending" };
+    const updatePayload: any = {
+      ...sanitizeTextFields(req.body, ["title", "excerpt", "content"]),
+      status: "pending",
+    };
     if (req.body.category !== undefined) updatePayload.category = normalizeCategory(req.body.category);
     if (req.body.tags !== undefined) updatePayload.tags = normalizeTags(req.body.tags);
     
@@ -262,9 +267,9 @@ export const updateMyBlog = async (req: Request, res: Response) => {
     );
 
     if (!blog) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Blog not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -290,9 +295,9 @@ export const deleteMyBlog = async (req: any, res: Response) => {
     });
 
     if (!blog) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Blog not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -393,7 +398,7 @@ export const adminUpdateBlog = async (req: any, res: Response) => {
       newData: req.body,
     });
 
-    const updatePayload: any = { ...req.body };
+    const updatePayload: any = sanitizeTextFields(req.body, ["title", "excerpt", "content"]);
     if (req.body.category !== undefined) updatePayload.category = normalizeCategory(req.body.category);
     if (req.body.tags !== undefined) updatePayload.tags = normalizeTags(req.body.tags);
 

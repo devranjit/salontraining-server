@@ -279,7 +279,7 @@ export const getMySeekingSubmissionById = async (req: any, res: Response) => {
       owner: req.user._id,
     });
     if (!submission) {
-      return res.status(404).json({ success: false, message: "Submission not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
     return res.json({ success: true, listing: submission });
   } catch (err: any) {
@@ -295,7 +295,7 @@ export const updateMySeekingSubmission = async (req: any, res: Response) => {
       owner: req.user._id,
     });
     if (!submission) {
-      return res.status(404).json({ success: false, message: "Submission not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     Object.assign(submission, req.body);
@@ -316,7 +316,7 @@ export const deleteMySeekingSubmission = async (req: any, res: Response) => {
       owner: req.user._id,
     });
     if (!submission) {
-      return res.status(404).json({ success: false, message: "Submission not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
     return res.json({ success: true, message: "Submission deleted successfully" });
   } catch (err: any) {

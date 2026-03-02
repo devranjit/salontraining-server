@@ -2,10 +2,13 @@ import { Request, Response } from "express";
 import { Listing } from "../models/Listing";
 import { moveToRecycleBin } from "../services/recycleBinService";
 import { expireOutdatedListings } from "../services/listingLifecycleService";
+import { sanitizeTextFields } from "../utils/sanitizeText";
 
 export const createListing = async (req: any, res: Response) => {
   try {
-    const title = String(req.body.title || "").trim();
+    const title = String(
+      sanitizeTextFields({ title: String(req.body.title || "").trim() }, ["title"]).title || ""
+    ).trim();
     if (!title) {
       return res.status(400).json({ success: false, message: "Title is required" });
     }
@@ -20,13 +23,29 @@ export const createListing = async (req: any, res: Response) => {
     delete rest.shortDescription;
     delete rest.description;
 
+    const sanitizedRest = sanitizeTextFields(rest, [
+      "title",
+      "description",
+      "shortDescription",
+      "content",
+      "embedHtml",
+      "embed_html",
+      "specialOffers",
+      "special_offers",
+    ]);
+
+    const sanitizedShortDescription = sanitizeTextFields(
+      { shortDescription: typeof req.body.shortDescription === "string" ? req.body.shortDescription.trim() : undefined },
+      ["shortDescription"]
+    ).shortDescription;
+
     const listing = await Listing.create({
       owner: req.user._id,
       title,
       listingType,
-      description: fullDescription,
-      shortDescription: typeof req.body.shortDescription === "string" ? req.body.shortDescription.trim() : undefined,
-      ...rest,
+      description: sanitizeTextFields({ fullDescription }, ["fullDescription"]).fullDescription,
+      shortDescription: sanitizedShortDescription,
+      ...sanitizedRest,
     });
 
     return res.json({ success: true, listing });
@@ -41,7 +60,19 @@ export const updateListing = async (req: any, res: Response) => {
     await expireOutdatedListings();
 
     const now = new Date();
-    const updatePayload: any = { ...req.body };
+    const updatePayload: any = sanitizeTextFields(
+      { ...req.body },
+      [
+        "title",
+        "description",
+        "shortDescription",
+        "content",
+        "embedHtml",
+        "embed_html",
+        "specialOffers",
+        "special_offers",
+      ]
+    );
 
     if (req.body.publishDate) {
       updatePayload.publishDate = new Date(req.body.publishDate);
@@ -74,8 +105,8 @@ export const updateListing = async (req: any, res: Response) => {
 
     if (!listing)
       return res
-        .status(404)
-        .json({ success: false, message: "Listing not found or unauthorized" });
+        .status(403)
+        .json({ success: false, message: "Access denied" });
 
     return res.json({ success: true, listing });
   } catch (err: any) {
@@ -127,8 +158,8 @@ export const deleteListing = async (req: any, res: Response) => {
 
     if (!listing)
       return res
-        .status(404)
-        .json({ success: false, message: "Listing not found or not authorized" });
+        .status(403)
+        .json({ success: false, message: "Access denied" });
 
     await moveToRecycleBin("listing", listing, { deletedBy: req.user?.id });
 
@@ -166,7 +197,7 @@ export const getMyListing = async (req: any, res: Response) => {
     });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     return res.json({ success: true, listing });

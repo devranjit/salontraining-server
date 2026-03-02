@@ -304,9 +304,9 @@ export const getMyJobById = async (req: Request, res: Response) => {
     });
 
     if (!job) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Job not found or unauthorized",
+        message: "Access denied",
       });
     }
 
@@ -327,7 +327,7 @@ export const updateMyJob = async (req: Request, res: Response) => {
     });
 
     if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     // User can update most fields, but status goes back to pending
@@ -356,7 +356,7 @@ export const deleteMyJob = async (req: any, res: Response) => {
     });
 
     if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     await moveToRecycleBin("job", job, { deletedBy: req.user?.id });

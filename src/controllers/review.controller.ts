@@ -274,7 +274,7 @@ export const updateReview = async (req: any, res: Response) => {
     const review = await Review.findOne({ _id: reviewId, user: req.user._id });
 
     if (!review) {
-      return res.status(404).json({ success: false, message: "Review not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     if (rating !== undefined) {
@@ -329,7 +329,7 @@ export const deleteReview = async (req: any, res: Response) => {
     }) as unknown as { status: string; listingType: string; listingId: string } | null;
 
     if (!review) {
-      return res.status(404).json({ success: false, message: "Review not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     if (review.status === "approved") {

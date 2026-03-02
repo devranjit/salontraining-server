@@ -26,11 +26,11 @@ router.put("/:id", updateReview);
 router.delete("/:id", deleteReview);
 
 // Admin review management
-router.get("/admin", adminOnly, adminListReviews);
-router.get("/admin/pending-count", adminOnly, pendingReviewCounts);
-router.patch("/admin/:id/status", adminOnly, adminUpdateReviewStatus);
-router.put("/admin/:id", adminOnly, adminUpdateReview);
-router.delete("/admin/:id", adminOnly, adminDeleteReview);
+router.get("/admin", protect, adminOnly, adminListReviews);
+router.get("/admin/pending-count", protect, adminOnly, pendingReviewCounts);
+router.patch("/admin/:id/status", protect, adminOnly, adminUpdateReviewStatus);
+router.put("/admin/:id", protect, adminOnly, adminUpdateReview);
+router.delete("/admin/:id", protect, adminOnly, adminDeleteReview);
 
 export default router;
 

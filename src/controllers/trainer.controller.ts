@@ -101,7 +101,7 @@ export async function getMyTrainerDetail(req: any, res: Response) {
     });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     return res.json({ success: true, listing });
@@ -121,7 +121,7 @@ export async function requestTrainerUpdate(req: any, res: Response) {
     });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     const pendingBody = req.body?.changes || req.body || {};
@@ -154,7 +154,7 @@ export async function requestTrainerDelete(req: any, res: Response) {
     });
 
     if (!listing) {
-      return res.status(404).json({ success: false, message: "Trainer not found" });
+      return res.status(403).json({ success: false, message: "Access denied" });
     }
 
     listing.pendingAction = "delete";
